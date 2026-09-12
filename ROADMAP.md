@@ -14,6 +14,7 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add model metadata and available-memory preflight checks
 - [x] Keep the local context bounded instead of using the model's full advertised context by default
 - [x] Add streamed token output and generation cancellation
+- [x] Make assistant lifecycle cleanup cancellation-safe
 - [ ] Build and run on a real arm64 Android device
 - [ ] Validate `Qwen3-4B-Q4_K_M.gguf` on the target phone
 - [ ] Add clearer model diagnostics in the Models screen
@@ -27,6 +28,7 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Preserve the user's chosen style between conversations
 - [x] Add conversation persistence
 - [x] Add a clear-conversation action
+- [x] Bound short-term conversation context before local generation
 - [ ] Add conversation rename and export
 - [ ] Add generation settings UI
 
@@ -38,13 +40,13 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Explicit memories the user can review and delete
 - [x] Memory categories such as preferences, projects, people, routines and facts
 - [x] Memory controls and a clear delete action
+- [x] Add deterministic relevance scoring / retrieval for saved memories
+- [x] Add memory-aware prompt assembly with a strict local character budget
 - [ ] Add memory editing
-- [ ] Add memory relevance scoring / retrieval
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
 - [ ] Add a clear "Forget" workflow for individual memories and categories
 - [ ] Add local encrypted storage where appropriate
-- [ ] Add short-term context management
-- [ ] Add memory-aware prompt assembly with a strict context budget
+- [ ] Add stronger semantic memory retrieval when the local architecture supports it
 
 ## Phase 4 — Device actions
 
