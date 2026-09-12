@@ -22,30 +22,38 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@androidx.compose.runtime.Composable
+@Composable
 fun ModelsScreen(onBack: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val repository = remember { ModelRepository(context) }
+    val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     var models by remember { mutableStateOf(emptyList<ModelInfo>()) }
     var importing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<ModelInfo?>(null) }
 
-    fun refresh() { models = repository.getModels() }
+    fun refresh() {
+        models = repository.getModels()
+    }
 
     LaunchedEffect(Unit) { refresh() }
 
@@ -55,8 +63,7 @@ fun ModelsScreen(onBack: () -> Unit) {
         if (uri == null) return@rememberLauncherForActivityResult
         importing = true
         error = null
-        androidx.compose.runtime.LaunchedEffect(Unit) {}
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        scope.launch(Dispatchers.IO) {
             runCatching { repository.importModel(uri) }
                 .onSuccess {
                     withContext(Dispatchers.Main) {
@@ -75,7 +82,9 @@ fun ModelsScreen(onBack: () -> Unit) {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 28.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 28.dp)
     ) {
         TextButton(onClick = onBack) { Text("Back") }
         Spacer(Modifier.height(4.dp))
@@ -89,7 +98,7 @@ fun ModelsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(18.dp))
 
         Button(
-            onClick = { picker.launch(arrayOf("application/octet-stream", "*/*")) },
+            onClick = { picker.launch(arrayOf("application/octet-stream", "application/gzip", "*/*")) },
             enabled = !importing,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -155,7 +164,7 @@ fun ModelsScreen(onBack: () -> Unit) {
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 private fun ModelItem(model: ModelInfo, onActivate: () -> Unit, onDelete: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(18.dp)) {
@@ -164,7 +173,11 @@ private fun ModelItem(model: ModelInfo, onActivate: () -> Unit, onDelete: () -> 
                     Text(model.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     Spacer(Modifier.height(4.dp))
                     Text(model.fileName, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                    Text("${model.sizeLabel} · ${if (model.isActive) "Active" else "Ready"}", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                    Text(
+                        "${model.sizeLabel} · ${if (model.isActive) "Active" else "Ready"}",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 12.sp
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
