@@ -15,9 +15,9 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Keep the local context bounded instead of using the model's full advertised context by default
 - [x] Add streamed token output and generation cancellation
 - [x] Make assistant lifecycle cleanup cancellation-safe
+- [x] Add clearer GGUF model diagnostics in the Models screen
 - [ ] Build and run on a real arm64 Android device
 - [ ] Validate `Qwen3-4B-Q4_K_M.gguf` on the target phone
-- [ ] Add clearer model diagnostics in the Models screen
 - [ ] Add robust runtime error recovery and model unload/reload handling
 
 ## Phase 2 — Assistant personality and conversation quality
@@ -48,9 +48,9 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [ ] Add local encrypted storage where appropriate
 - [ ] Add stronger semantic memory retrieval when the local architecture supports it
 
-## Phase 4 — Device actions
+## Phase 4 — Device actions and app integrations
 
-The model should propose actions; Android code should execute them through explicit, visible mechanisms.
+The model should propose actions; Android code should execute them through explicit, visible mechanisms. App integrations must respect Android permissions, each app's APIs, and the user's control.
 
 - [ ] Action planner separate from the language model
 - [ ] Permission manager with per-capability controls
@@ -59,6 +59,12 @@ The model should propose actions; Android code should execute them through expli
 - [ ] Open Google Docs and other supported document apps
 - [ ] Add supported text insertion workflows
 - [ ] Accessibility integration only where necessary and clearly explained to the user
+- [ ] Add controlled access to supported messaging and social apps such as WhatsApp and TikTok where Android provides a permitted integration path
+- [ ] Allow the user to explicitly invoke the assistant from a supported app context so it can work with the visible conversation/content they chose to share
+- [ ] For supported chat workflows, let the assistant draft a reply from the selected conversation context without sending it automatically
+- [ ] Show a clear draft action sheet with `Send`, `Edit` and `Delete` after text is prepared
+- [ ] `Send` must require an explicit user action and must never happen because the model generated text alone
+- [ ] Keep sensitive app content local where possible and clearly indicate what content is being shared with the assistant
 - [ ] Never silently send messages, publish content, delete user data or make purchases
 - [ ] Require explicit confirmation for consequential actions
 
@@ -69,6 +75,8 @@ The model should propose actions; Android code should execute them through expli
 - [ ] Insert drafted text into the current text field without sending it
 - [ ] Provide `Send`, `Edit` and `Delete` controls after insertion where the host app allows it
 - [ ] Keep sending as a separate user-confirmed action
+- [ ] Support a context-aware drafting flow for venting / support conversations when the user explicitly invokes the assistant
+- [ ] Never press Enter, trigger a send action, or otherwise submit the draft automatically
 
 ## Phase 6 — S•S AI ecosystem
 
