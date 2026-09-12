@@ -39,15 +39,38 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Disable broken optional Vulkan backend in pinned llama.kt
+      - name: Disable unavailable optional GPU backends in pinned llama.kt
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path("libs/llama.kt/llama-kt/src/main/cpp/CMakeLists.txt")
           text = path.read_text()
-          text = text.replace('    # Vulkan backend + SPIR-V shaders\n    ${GGML_VULKAN_SOURCES}\n    ${GGML_VULKAN_SHADER_SOURCES}\n', '')
-          text = text.replace('    # Vulkan backend (Mali-G68 + any Vulkan 1.1+ GPU)\n    -DLM_GGML_USE_VULKAN\n', '')
-          text = text.replace('    # Vulkan — Android system library (present on API 24+, always available on Mali devices)\n    ${VULKAN_LIB}\n', '')
+
+          removals = [
+              '    # Vulkan backend + SPIR-V shaders\n'
+              '    ${GGML_VULKAN_SOURCES}\n'
+              '    ${GGML_VULKAN_SHADER_SOURCES}\n',
+              '    # Vulkan backend (Mali-G68 + any Vulkan 1.1+ GPU)\n'
+              '    -DLM_GGML_USE_VULKAN\n',
+              '    # Vulkan — Android system library (present on API 24+, always available on Mali devices)\n'
+              '    ${VULKAN_LIB}\n',
+              '    # OpenCL backend\n'
+              '    ${GGML_OPENCL_SOURCES}\n',
+              '    # OpenCL backend\n'
+              '    -DLM_GGML_USE_OPENCL\n',
+              '    # OpenCL — Android system library\n'
+              '    -lOpenCL\n',
+              '    ${OPENCL_LIB}\n',
+          ]
+
+          for block in removals:
+              text = text.replace(block, '')
+
+          text = text.replace('    ggml-opencl/ggml-opencl.cpp\n', '')
+          text = text.replace('    ${GGML_OPENCL_SOURCES}\n', '')
+          text = text.replace('    ${OPENCL_LIB}\n', '')
+          text = text.replace('    -lOpenCL\n', '')
+          text = text.replace('    OpenCL\n', '')
           path.write_text(text)
           PY
 
