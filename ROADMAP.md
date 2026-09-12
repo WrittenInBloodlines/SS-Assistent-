@@ -49,12 +49,56 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Add duplicate protection for saved memories
 - [x] Add a clear "Forget all" workflow
 - [x] Add explicit "Remember" capture from conversation messages
-- [x] Limit saved memory text length and normalize whitespace
+- [x] Limit saved memory text length and normalize whitespace for normal memories
 - [x] Add category-aware memory counting and clearing primitives
+- [x] Add sealed/exact memory storage primitives that preserve explicitly supplied text without trimming, whitespace normalization or shortening
+- [x] Mark sealed memories clearly in the Memory UI and require an explicit replacement to change their contents
+- [x] Add category-specific Forget controls
+- [ ] Detect explicit natural-language intent such as "save this exactly as written" / "store this exactly" and route it to sealed memory automatically
+- [ ] When exact/sealed memory is requested, show a confirmation preview and clearly state that the text will be stored exactly as supplied
+- [ ] Guarantee that sealed memory retrieval does not paraphrase, summarize, shorten or silently rewrite the stored value
+- [ ] If a user explicitly requests a change to a sealed memory, apply only the requested change and preserve every other character/content exactly
+- [ ] Add a dedicated memory version/history trail so exact replacements can be reviewed safely
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
-- [ ] Add a clear "Forget" workflow for individual memories and categories
 - [ ] Add local encrypted storage where appropriate
 - [ ] Add stronger semantic memory retrieval when the local architecture supports it
+
+## Phase 3B — Story, lore and continuity intelligence
+
+This is designed primarily for story/character work. The assistant should not treat every surprising detail as an error; it should compare new text against the established canon, timeline, character facts and intentional hidden-information rules before raising anything.
+
+### Plot-hole detection
+
+- [ ] Detect likely continuity gaps in a story, timeline, scene transition or character location
+- [ ] Show a clear non-destructive notice such as **"Plot hole detected"** instead of silently rewriting the story
+- [ ] Explain the exact conflicting or missing information in a compact review window
+- [ ] Offer three practical resolution choices where possible, such as `Ignore`, `Edit` and a suggested fix
+- [ ] Suggested fixes must be optional and must never be inserted automatically
+- [ ] Example: if a character is described as being in a car, then later walks into the kitchen without the story establishing that they returned home, flag the missing transition and suggest ways to resolve it
+- [ ] Keep plot-hole detection separate from the actual story text so the user remains in control
+
+### Secret / hidden-information system
+
+- [ ] Add a story-level **Secrets** system for information that is known to the author/assistant but intentionally unknown to one or more characters
+- [ ] Let a secret specify who knows it, who does not know it, when it becomes discoverable and whether it may be revealed in narration
+- [ ] Prevent the assistant from accidentally explaining a hidden cause just because the assistant itself knows the secret
+- [ ] Preserve uncertainty when a character experiences an unexplained event
+- [ ] Example: if the canon says the creator is secretly observing Alex and Ciro, but Ciro only feels strangely watched and cannot know why, the assistant should keep the scene at "Ciro feels strangely watched but cannot explain why" rather than exposing the observer
+- [ ] Add a review warning when a generated sentence would reveal a secret to a character who is not supposed to know it
+- [ ] Offer `Keep hidden`, `Reveal`, `Edit` and `Ignore` controls when a possible secret leak is detected
+- [ ] Never reveal a secret merely because it exists in the assistant's internal story data
+
+### Lore contradiction detection
+
+- [ ] Detect when new user-provided story information conflicts with established lore
+- [ ] Show a clear review window such as **"Lore conflict detected"** with `Ignore`, `Change` and a suggested resolution
+- [ ] Show the established canon value and the newly supplied value side by side
+- [ ] Never silently overwrite established canon because the latest message contains a different fact
+- [ ] Example: if canon says Ciro has dark brown eyes and a new draft says he has blue eyes, flag the contradiction before changing anything
+- [ ] `Ignore` keeps the established canon and does not modify the new draft automatically
+- [ ] `Change` lets the user explicitly update the canon or the current draft, depending on what they choose
+- [ ] Suggested resolutions remain suggestions and require user confirmation
+- [ ] Track intentional canon changes so an old fact is not repeatedly reported as a contradiction after the user deliberately changed it
 
 ## Phase 4 — Device actions and app integrations
 
