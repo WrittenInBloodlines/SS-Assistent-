@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import com.ss.assistent.assistant.PromptContext
 import com.ss.assistent.assistant.RuntimeResult
 import com.ss.assistent.chat.ConversationRepository
 import com.ss.assistent.memory.MemoryRepository
+import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.settings.AssistantPreferences
 import kotlinx.coroutines.Job
@@ -57,19 +59,23 @@ fun AssistantScreen(onBack: () -> Unit) {
     val runtime = remember { LlamaAssistantRuntime(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val messages = remember {
-        mutableStateListOf<ChatMessage>().apply {
-            addAll(conversationRepository.loadMessages())
-        }
+        mutableStateListOf<ChatMessage>().apply { addAll(conversationRepository.loadMessages()) }
     }
+
     var input by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Ready for local conversation.") }
     var busy by remember { mutableStateOf(false) }
     var generationJob by remember { mutableStateOf<Job?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var activeModel by remember { mutableStateOf<ModelInfo?>(null) }
+
+    fun refreshModel() {
+        activeModel = modelRepository.getModels().firstOrNull { it.isActive }
+    }
+
+    LaunchedEffect(Unit) { refreshModel() }
 
     val latestGenerationJob by rememberUpdatedState(generationJob)
-    val activeModel = remember { modelRepository.getModels().firstOrNull { it.isActive } }
-
     DisposableEffect(Unit) {
         onDispose {
             latestGenerationJob?.cancel()
@@ -84,10 +90,12 @@ fun AssistantScreen(onBack: () -> Unit) {
             text = { Text("This removes the saved conversation from this device. It cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
-                    messages.clear()
-                    conversationRepository.clear()
-                    showClearDialog = false
-                    status = "Conversation cleared."
+                    if (!busy) {
+                        messages.clear()
+                        conversationRepository.clear()
+                        showClearDialog = false
+                        status = "Conversation cleared."
+                    }
                 }) { Text("Clear") }
             },
             dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Cancel") } }
@@ -100,22 +108,14 @@ fun AssistantScreen(onBack: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Assistant", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    activeModel?.name ?: "No active model",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
-                )
+                Text(activeModel?.name ?: "No active model", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
             }
             if (messages.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = { if (!busy) showClearDialog = true },
-                    enabled = !busy
-                ) { Text("Clear") }
+                OutlinedButton(onClick = { if (!busy) showClearDialog = true }, enabled = !busy) { Text("Clear") }
             }
         }
 
         Spacer(Modifier.height(10.dp))
-
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
             shape = RoundedCornerShape(18.dp),
@@ -123,24 +123,28 @@ fun AssistantScreen(onBack: () -> Unit) {
         ) {
             Row(Modifier.fillMaxWidth().padding(14.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        "Style: ${preferences.responseStyle.title}",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        "Local memory: ${memoryRepository.getAll().size} saved",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
+                    Text("Style: ${preferences.responseStyle.title}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("Local memory: ${memoryRepository.getAll().size} saved", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
                 Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
             }
         }
 
         Spacer(Modifier.height(8.dp))
-
-        if (messages.isEmpty()) {
+        if (activeModel == null) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("No active model", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Add a GGUF model and set it active in Models before starting a local conversation.", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        } else if (messages.isEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 shape = RoundedCornerShape(22.dp),
@@ -149,12 +153,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                 Column(Modifier.padding(18.dp)) {
                     Text("Local assistant", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Conversations are saved locally. Explicit memories can be reviewed and deleted from Memory.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp
-                    )
+                    Text("Conversations are saved locally. Explicit memories are reviewed and controlled from Memory.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
                 }
             }
         }
@@ -172,7 +171,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
+                enabled = !busy && activeModel != null,
                 placeholder = { Text("Message your assistant...") },
                 minLines = 1,
                 maxLines = 5,
@@ -186,22 +185,14 @@ fun AssistantScreen(onBack: () -> Unit) {
                         generationJob = null
                         busy = false
                         status = "Generation stopped."
-                    }) {
-                        Text("Stop")
-                    }
+                    }) { Text("Stop") }
                     Spacer(Modifier.width(8.dp))
                 }
-
                 Button(
                     onClick = {
                         val text = input.trim()
-                        if (text.isEmpty() || busy) return@Button
-
                         val model = activeModel
-                        if (model == null) {
-                            status = "No active model. Add a GGUF model in Models."
-                            return@Button
-                        }
+                        if (text.isEmpty() || busy || model == null) return@Button
 
                         messages.add(ChatMessage("user", text))
                         conversationRepository.saveMessages(messages)
@@ -211,76 +202,61 @@ fun AssistantScreen(onBack: () -> Unit) {
 
                         generationJob = scope.launch {
                             var generatedAssistantText = ""
-                            var completedNormally = false
-
+                            var generationFailed = false
                             try {
                                 when (val loadResult = runtime.load(model)) {
                                     is RuntimeResult.Error -> {
+                                        generationFailed = true
                                         status = loadResult.message
                                     }
-
                                     is RuntimeResult.Success -> {
                                         status = "Generating locally..."
-                                        val memories = memoryRepository.getAll()
                                         val system = ChatMessage(
                                             "system",
                                             PromptContext.buildSystemPrompt(
                                                 styleInstruction = preferences.responseStyle.instruction,
-                                                memories = memories,
+                                                memories = memoryRepository.getAll(),
                                                 query = text
                                             )
                                         )
                                         val conversationContext = PromptContext.recentConversation(messages)
-
                                         var assistantIndex = -1
-                                        runtime.generateStream(
-                                            listOf(system) + conversationContext
-                                        ).collect { chunk ->
+
+                                        runtime.generateStream(listOf(system) + conversationContext).collect { chunk ->
                                             when (chunk) {
                                                 is RuntimeResult.Success -> {
                                                     generatedAssistantText += chunk.text
                                                     if (assistantIndex == -1) {
                                                         assistantIndex = messages.size
-                                                        messages.add(
-                                                            ChatMessage(
-                                                                "assistant",
-                                                                generatedAssistantText
-                                                            )
-                                                        )
+                                                        messages.add(ChatMessage("assistant", generatedAssistantText))
                                                     } else {
-                                                        messages[assistantIndex] = ChatMessage(
-                                                            "assistant",
-                                                            generatedAssistantText
-                                                        )
+                                                        messages[assistantIndex] = ChatMessage("assistant", generatedAssistantText)
                                                     }
                                                 }
-
                                                 is RuntimeResult.Error -> {
+                                                    generationFailed = true
                                                     status = chunk.message
                                                 }
                                             }
                                         }
 
-                                        completedNormally = true
-                                        if (generatedAssistantText.isNotBlank()) {
-                                            conversationRepository.saveMessages(messages)
+                                        if (!generationFailed && generatedAssistantText.isBlank()) {
+                                            generationFailed = true
+                                            status = "The model produced no response."
                                         }
-                                        status = "Ready"
+                                        if (generatedAssistantText.isNotBlank()) conversationRepository.saveMessages(messages)
+                                        if (!generationFailed) status = "Ready"
                                     }
                                 }
                             } finally {
-                                if (!completedNormally && generatedAssistantText.isNotBlank()) {
-                                    conversationRepository.saveMessages(messages)
-                                }
+                                if (generationFailed && generatedAssistantText.isNotBlank()) conversationRepository.saveMessages(messages)
                                 busy = false
                                 generationJob = null
                             }
                         }
                     },
-                    enabled = input.isNotBlank() && !busy
-                ) {
-                    Text("Send")
-                }
+                    enabled = input.isNotBlank() && !busy && activeModel != null
+                ) { Text("Send") }
             }
         }
     }
@@ -292,21 +268,10 @@ private fun MessageBubble(message: ChatMessage) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isUser) {
-                MaterialTheme.colorScheme.surfaceVariant
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        )
+        colors = CardDefaults.cardColors(containerColor = if (isUser) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(15.dp)) {
-            Text(
-                if (isUser) "You" else "Assistant",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Text(if (isUser) "You" else "Assistant", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(5.dp))
             Text(message.content, fontSize = 14.sp, lineHeight = 20.sp)
         }
