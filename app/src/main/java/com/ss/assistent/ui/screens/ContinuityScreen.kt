@@ -55,7 +55,11 @@ fun ContinuityScreen(onBack: () -> Unit) {
     var secretText by remember { mutableStateOf("") }
     var knownBy by remember { mutableStateOf("") }
     var changeWarning by remember { mutableStateOf<ContinuityWarning?>(null) }
+    var editSecret by remember { mutableStateOf<com.ss.assistent.continuity.SecretFact?>(null) }
     var newCanonValue by remember { mutableStateOf("") }
+    var editSecretSubject by remember { mutableStateOf("") }
+    var editSecretText by remember { mutableStateOf("") }
+    var editKnownBy by remember { mutableStateOf("") }
 
     fun refresh() {
         loreFacts = repository.getLoreFacts()
@@ -65,7 +69,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
     }
 
     changeWarning?.let { warning ->
-        val fact = loreFacts.firstOrNull { warning.details.contains(it.subject) && warning.details.contains(it.attribute) }
+        val fact = warning.relatedLoreFactId?.let { id -> loreFacts.firstOrNull { it.id == id } }
         AlertDialog(
             onDismissRequest = { changeWarning = null },
             title = { Text("Change canon?") },
@@ -101,6 +105,34 @@ fun ContinuityScreen(onBack: () -> Unit) {
         )
     }
 
+    editSecret?.let { secret ->
+        AlertDialog(
+            onDismissRequest = { editSecret = null },
+            title = { Text("Edit hidden information") },
+            text = {
+                Column {
+                    Text("This edits the stored secret itself. The secret remains hidden unless you explicitly choose Reveal on a warning.", fontSize = 13.sp, lineHeight = 19.sp)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(editSecretSubject, { editSecretSubject = it }, Modifier.fillMaxWidth(), label = { Text("Subject") })
+                    Spacer(Modifier.height(7.dp))
+                    OutlinedTextField(editSecretText, { editSecretText = it }, Modifier.fillMaxWidth(), label = { Text("Hidden information") })
+                    Spacer(Modifier.height(7.dp))
+                    OutlinedTextField(editKnownBy, { editKnownBy = it }, Modifier.fillMaxWidth(), label = { Text("Known by (comma separated)") })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (repository.replaceSecret(secret.id, editSecretSubject, editSecretText, editKnownBy.split(",")) != null) {
+                        editSecret = null
+                        refresh()
+                        status = "Hidden information updated."
+                    }
+                }, enabled = editSecretSubject.isNotBlank() && editSecretText.isNotBlank()) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editSecret = null }) { Text("Cancel") } }
+        )
+    }
+
     Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             OutlinedButton(onClick = onBack) { Text("Back") }
@@ -123,13 +155,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(6.dp))
                         Text("Paste a scene or chapter here. Checks run locally and produce warnings only. Canon is never overwritten automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
                         Spacer(Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = draft,
-                            onValueChange = { draft = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 7,
-                            label = { Text("Story draft") }
-                        )
+                        OutlinedTextField(value = draft, onValueChange = { draft = it }, modifier = Modifier.fillMaxWidth(), minLines = 7, label = { Text("Story draft") })
                         Spacer(Modifier.height(10.dp))
                         Button(onClick = {
                             val found = ContinuityAnalyzer.analyze(draft, loreFacts, secrets)
@@ -148,7 +174,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                     Column(Modifier.padding(18.dp)) {
                         Text("Canon facts", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Spacer(Modifier.height(5.dp))
-                        Text("Store facts such as Ciro → eye color → dark brown. New text that contradicts a fact creates a review instead of silently changing it.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 18.sp)
+                        Text("Structured facts are linked by ID, so a warning never has to guess which canon entry it refers to.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 18.sp)
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(subject, { subject = it }, Modifier.fillMaxWidth(), label = { Text("Subject") })
                         Spacer(Modifier.height(7.dp))
@@ -163,9 +189,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                         }, enabled = subject.isNotBlank() && attribute.isNotBlank() && value.isNotBlank()) { Text("Add canon fact") }
                         if (loreFacts.isNotEmpty()) {
                             Spacer(Modifier.height(10.dp))
-                            loreFacts.forEach { fact ->
-                                Text("${fact.subject} • ${fact.attribute}: ${fact.value}", fontSize = 12.sp, modifier = Modifier.padding(vertical = 3.dp))
-                            }
+                            loreFacts.forEach { fact -> Text("${fact.subject} • ${fact.attribute}: ${fact.value}", fontSize = 12.sp, modifier = Modifier.padding(vertical = 3.dp)) }
                         }
                     }
                 }
@@ -176,7 +200,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                     Column(Modifier.padding(18.dp)) {
                         Text("Secrets / hidden information", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Spacer(Modifier.height(5.dp))
-                        Text("The assistant may know a secret while characters do not. A scene should preserve uncertainty until the story explicitly reveals it.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 18.sp)
+                        Text("Secrets stay separate from normal canon. Known-by information is stored with each secret and is not treated as global character knowledge.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 18.sp)
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(secretSubject, { secretSubject = it }, Modifier.fillMaxWidth(), label = { Text("Subject") })
                         Spacer(Modifier.height(7.dp))
@@ -192,7 +216,16 @@ fun ContinuityScreen(onBack: () -> Unit) {
                         if (secrets.isNotEmpty()) {
                             Spacer(Modifier.height(10.dp))
                             secrets.forEach { secret ->
-                                Text("${secret.subject}: hidden • known by ${secret.knownBy.ifEmpty { listOf("nobody specified") }.joinToString()}", fontSize = 12.sp, modifier = Modifier.padding(vertical = 3.dp))
+                                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                                    Text("${secret.subject}: hidden", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("Known by: ${secret.knownBy.ifEmpty { listOf("nobody specified") }.joinToString()}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    TextButton(onClick = {
+                                        editSecret = secret
+                                        editSecretSubject = secret.subject
+                                        editSecretText = secret.secret
+                                        editKnownBy = secret.knownBy.joinToString(", ")
+                                    }) { Text("Edit secret") }
+                                }
                             }
                         }
                     }
@@ -220,7 +253,6 @@ fun ContinuityScreen(onBack: () -> Unit) {
             }
 
             item { Text("Review queue", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
-
             if (warnings.isEmpty()) {
                 item { Text("No open warnings.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
             } else {
@@ -232,10 +264,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                             draft = if (draft.isBlank()) warning.suggestion else "$draft\n\n[Continuity edit suggestion] ${warning.suggestion}"
                             status = "Draft updated with an edit suggestion."
                         },
-                        onChange = {
-                            newCanonValue = ""
-                            changeWarning = warning
-                        },
+                        onChange = { newCanonValue = ""; changeWarning = warning },
                         onKeepHidden = { repository.setWarningState(warning.id, WarningState.RESOLVED); refresh(); status = "Secret kept hidden." },
                         onReveal = { repository.setWarningState(warning.id, WarningState.RESOLVED); refresh(); status = "Reveal explicitly accepted." }
                     )
@@ -262,24 +291,26 @@ private fun WarningCard(
             Spacer(Modifier.height(7.dp))
             Text("Suggested fix: ${warning.suggestion}", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp, lineHeight = 18.sp)
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                when (warning.type) {
-                    WarningType.PLOT_HOLE -> {
-                        TextButton(onClick = onIgnore) { Text("Ignore") }
-                        TextButton(onClick = onEdit) { Text("Edit") }
-                    }
-                    WarningType.LORE_CONFLICT -> {
-                        TextButton(onClick = onIgnore) { Text("Ignore") }
-                        TextButton(onClick = onChange) { Text("Change") }
-                    }
-                    WarningType.SECRET_LEAK -> {
-                        TextButton(onClick = onIgnore) { Text("Ignore") }
-                        TextButton(onClick = onEdit) { Text("Edit") }
-                        TextButton(onClick = onKeepHidden) { Text("Keep hidden") }
-                        TextButton(onClick = onReveal) { Text("Reveal") }
-                    }
+            when (warning.type) {
+                WarningType.PLOT_HOLE -> {
+                    ActionRows(primary = "Edit" to onEdit, secondary = "Ignore" to onIgnore)
+                }
+                WarningType.LORE_CONFLICT -> {
+                    ActionRows(primary = "Change" to onChange, secondary = "Ignore" to onIgnore)
+                }
+                WarningType.SECRET_LEAK -> {
+                    ActionRows(primary = "Keep hidden" to onKeepHidden, secondary = "Reveal" to onReveal)
+                    ActionRows(primary = "Edit" to onEdit, secondary = "Ignore" to onIgnore)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ActionRows(primary: Pair<String, () -> Unit>, secondary: Pair<String, () -> Unit>) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = primary.second, modifier = Modifier.weight(1f)) { Text(primary.first) }
+        TextButton(onClick = secondary.second, modifier = Modifier.weight(1f)) { Text(secondary.first) }
     }
 }
