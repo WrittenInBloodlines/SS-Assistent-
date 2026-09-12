@@ -1,36 +1,56 @@
 package com.ss.assistent.settings
 
 import android.content.Context
+import com.ss.assistent.chat.ConversationRepository
 
-/** Stores assistant behavior and local generation choices on the device. */
+/** Stores global assistant behavior while allowing the current conversation to override generation choices. */
 class AssistantPreferences(context: Context) {
     private val preferences = context.getSharedPreferences("assistant_preferences", Context.MODE_PRIVATE)
+    private val conversationRepository = ConversationRepository(context)
 
     var responseStyle: ResponseStyle
-        get() = ResponseStyle.fromKey(preferences.getString(KEY_STYLE, ResponseStyle.NORMAL.key))
+        get() = conversationRepository.profile().responseStyle
+            ?: ResponseStyle.fromKey(preferences.getString(KEY_STYLE, ResponseStyle.NORMAL.key))
         set(value) = preferences.edit().putString(KEY_STYLE, value.key).apply()
 
     var customStyleInstruction: String
-        get() = preferences.getString(KEY_CUSTOM_STYLE, "") ?: ""
+        get() = conversationRepository.profile().let { profile ->
+            if (profile.responseStyle == ResponseStyle.CUSTOM && profile.customStyleInstruction.isNotBlank()) {
+                profile.customStyleInstruction
+            } else {
+                preferences.getString(KEY_CUSTOM_STYLE, "") ?: ""
+            }
+        }
         set(value) = preferences.edit().putString(KEY_CUSTOM_STYLE, value.trim().take(MAX_CUSTOM_STYLE_CHARS)).apply()
 
     var maxTokens: Int
-        get() = preferences.getInt(KEY_MAX_TOKENS, GenerationSettings.DEFAULT.maxTokens).coerceIn(64, 1024)
+        get() = conversationRepository.profile().generation.maxTokens.takeIf { hasConversationGenerationOverride() }
+            ?: preferences.getInt(KEY_MAX_TOKENS, GenerationSettings.DEFAULT.maxTokens).coerceIn(64, 1024)
         set(value) = preferences.edit().putInt(KEY_MAX_TOKENS, value.coerceIn(64, 1024)).apply()
 
     var temperature: Float
-        get() = preferences.getFloat(KEY_TEMPERATURE, GenerationSettings.DEFAULT.temperature).coerceIn(0.1f, 1.5f)
+        get() = conversationRepository.profile().generation.temperature.takeIf { hasConversationGenerationOverride() }
+            ?: preferences.getFloat(KEY_TEMPERATURE, GenerationSettings.DEFAULT.temperature).coerceIn(0.1f, 1.5f)
         set(value) = preferences.edit().putFloat(KEY_TEMPERATURE, value.coerceIn(0.1f, 1.5f)).apply()
 
     var topK: Int
-        get() = preferences.getInt(KEY_TOP_K, GenerationSettings.DEFAULT.topK).coerceIn(1, 100)
+        get() = conversationRepository.profile().generation.topK.takeIf { hasConversationGenerationOverride() }
+            ?: preferences.getInt(KEY_TOP_K, GenerationSettings.DEFAULT.topK).coerceIn(1, 100)
         set(value) = preferences.edit().putInt(KEY_TOP_K, value.coerceIn(1, 100)).apply()
 
     var topP: Float
-        get() = preferences.getFloat(KEY_TOP_P, GenerationSettings.DEFAULT.topP).coerceIn(0.1f, 1.0f)
+        get() = conversationRepository.profile().generation.topP.takeIf { hasConversationGenerationOverride() }
+            ?: preferences.getFloat(KEY_TOP_P, GenerationSettings.DEFAULT.topP).coerceIn(0.1f, 1.0f)
         set(value) = preferences.edit().putFloat(KEY_TOP_P, value.coerceIn(0.1f, 1.0f)).apply()
 
     fun generationSettings(): GenerationSettings = GenerationSettings(maxTokens, temperature, topK, topP)
+
+    private fun hasConversationGenerationOverride(): Boolean {
+        val profile = conversationRepository.profile()
+        return profile.responseStyle != null ||
+            profile.customStyleInstruction.isNotBlank() ||
+            profile.generation != GenerationSettings.DEFAULT
+    }
 
     companion object {
         private const val KEY_STYLE = "response_style"
