@@ -12,7 +12,7 @@ class AssistantPreferences(context: Context) {
 
     var customStyleInstruction: String
         get() = preferences.getString(KEY_CUSTOM_STYLE, "") ?: ""
-        set(value) = preferences.edit().putString(KEY_CUSTOM_STYLE, value.trim()).apply()
+        set(value) = preferences.edit().putString(KEY_CUSTOM_STYLE, value.trim().take(MAX_CUSTOM_STYLE_CHARS)).apply()
 
     var maxTokens: Int
         get() = preferences.getInt(KEY_MAX_TOKENS, GenerationSettings.DEFAULT.maxTokens).coerceIn(64, 1024)
@@ -39,14 +39,15 @@ class AssistantPreferences(context: Context) {
         private const val KEY_TEMPERATURE = "temperature"
         private const val KEY_TOP_K = "top_k"
         private const val KEY_TOP_P = "top_p"
+        private const val MAX_CUSTOM_STYLE_CHARS = 1000
     }
 }
 
 data class GenerationSettings(
-    val maxTokens: Int = DEFAULT.maxTokens,
-    val temperature: Float = DEFAULT.temperature,
-    val topK: Int = DEFAULT.topK,
-    val topP: Float = DEFAULT.topP,
+    val maxTokens: Int = 256,
+    val temperature: Float = 0.7f,
+    val topK: Int = 40,
+    val topP: Float = 0.95f,
 ) {
     companion object {
         val DEFAULT = GenerationSettings(maxTokens = 256, temperature = 0.7f, topK = 40, topP = 0.95f)
