@@ -1,8 +1,8 @@
 package com.ss.assistent.continuity
 
 /**
- * Lightweight, deterministic continuity checks that can run fully offline.
- * These checks are deliberately conservative: a warning is safer than silently changing canon.
+ * Lightweight, deterministic continuity checks that run fully offline.
+ * Warnings are conservative and always reference structured canon IDs when possible.
  */
 object ContinuityAnalyzer {
     fun analyze(
@@ -14,32 +14,33 @@ object ContinuityAnalyzer {
         return buildList {
             addAll(findLoreConflicts(draft, loreFacts))
             addAll(findSecretLeaks(draft, secrets))
-            addAll(findKnownPlotHoles(draft))
-        }.distinctBy { "${it.type}|${it.title}|${it.details}" }
+            addAll(findLocationTransitionHoles(draft))
+        }.distinctBy { "${it.type}|${it.title}|${it.details}|${it.relatedLoreFactId}|${it.relatedSecretId}" }
     }
 
     private fun findLoreConflicts(draft: String, facts: List<LoreFact>): List<ContinuityWarning> {
         val lower = draft.lowercase()
+        val sentences = splitSentences(draft)
         return facts.mapNotNull { fact ->
             val subjectPresent = lower.contains(fact.subject.lowercase())
-            val attributePresent = attributeAliases(fact.attribute).any { alias -> alias.all { lower.contains(it) } }
+            val attributePresent = attributeAliases(fact.attribute).any { alias -> alias.all(lower::contains) }
             if (!subjectPresent || !attributePresent) return@mapNotNull null
 
-            val sentences = draft.split(Regex("(?<=[.!?])\\s+|\\n+"))
-            val sentence = sentences.firstOrNull { sentenceText ->
-                val sentenceLower = sentenceText.lowercase()
+            val sentence = sentences.firstOrNull { text ->
+                val sentenceLower = text.lowercase()
                 sentenceLower.contains(fact.subject.lowercase()) &&
-                    attributeAliases(fact.attribute).any { alias -> alias.all { sentenceLower.contains(it) } }
+                    attributeAliases(fact.attribute).any { alias -> alias.all(sentenceLower::contains) }
             } ?: return@mapNotNull null
 
-            val known = fact.value.lowercase()
             val mentionedValue = extractMentionedValue(sentence, fact)
+            val known = fact.value.lowercase()
             if (mentionedValue != null && !mentionedValue.equals(known, true) && !mentionedValue.contains(known)) {
                 ContinuityWarning(
                     type = WarningType.LORE_CONFLICT,
                     title = "Lore conflict detected",
                     details = "Canon: ${fact.subject}'s ${fact.attribute} is ${fact.value}. New text says: $mentionedValue.",
-                    suggestion = "Keep the canon, change the new value to ${fact.value}, or explicitly change the canon instead."
+                    suggestion = "Keep the canon, change the new value to ${fact.value}, or explicitly change the canon instead.",
+                    relatedLoreFactId = fact.id
                 )
             } else null
         }
@@ -59,17 +60,16 @@ object ContinuityAnalyzer {
     private fun extractMentionedValue(sentence: String, fact: LoreFact): String? {
         val lower = sentence.lowercase()
         val attribute = Regex.escape(fact.attribute.lowercase())
-        val afterAttribute = Regex("$attribute\\s*(?:is|are|:|=|was|were)\\s+([^,.!?;]+)", RegexOption.IGNORE_CASE)
-            .find(lower)?.groupValues?.getOrNull(1)?.trim()
-        if (afterAttribute != null) return afterAttribute
+        Regex("$attribute\\s*(?:is|are|:|=|was|were)\\s+([^,.!?;]+)", RegexOption.IGNORE_CASE)
+            .find(lower)?.groupValues?.getOrNull(1)?.trim()?.let { return it }
 
         val subject = Regex.escape(fact.subject.lowercase())
-        val hasPattern = Regex("$subject\\s+(?:has|have)\\s+([^,.!?;]+)", RegexOption.IGNORE_CASE)
-            .find(lower)?.groupValues?.getOrNull(1)?.trim()
-        if (hasPattern != null) return hasPattern
+        Regex("$subject\\s+(?:has|have)\\s+([^,.!?;]+)", RegexOption.IGNORE_CASE)
+            .find(lower)?.groupValues?.getOrNull(1)?.trim()?.let { return it }
 
-        if (attributeAliases(fact.attribute).any { alias -> alias.all { lower.contains(it) } }) {
-            val color = listOf("dark brown", "light brown", "blue", "green", "brown", "gray", "grey", "hazel", "black", "white", "red").firstOrNull { lower.contains(it) }
+        if (attributeAliases(fact.attribute).any { alias -> alias.all(lower::contains) }) {
+            val color = listOf("dark brown", "light brown", "blue", "green", "brown", "gray", "grey", "hazel", "black", "white", "red")
+                .firstOrNull(lower::contains)
             if (color != null) return color
         }
         return null
@@ -80,40 +80,66 @@ object ContinuityAnalyzer {
         return secrets.mapNotNull { secret ->
             val secretTerms = meaningfulTerms(secret.secret)
             if (secretTerms.isEmpty()) return@mapNotNull null
-            val matches = secretTerms.count { lower.contains(it) }
+            val matches = secretTerms.count(lower::contains)
             val threshold = maxOf(2, (secretTerms.size + 1) / 2)
             if (matches < threshold) return@mapNotNull null
             ContinuityWarning(
                 type = WarningType.SECRET_LEAK,
                 title = "Secret leak detected",
                 details = "The draft appears to reveal hidden information about ${secret.subject} that may not be known by the characters.",
-                suggestion = "Keep the secret hidden and preserve uncertainty, or explicitly mark this scene as a reveal."
+                suggestion = "Keep the secret hidden and preserve uncertainty, or explicitly mark this scene as a reveal.",
+                relatedSecretId = secret.id
             )
         }
     }
 
-    private fun findKnownPlotHoles(draft: String): List<ContinuityWarning> {
+    /**
+     * Finds several high-confidence location jumps, not only car -> kitchen.
+     * The detector only warns when the draft explicitly establishes an origin,
+     * then jumps to a destination without a transition phrase.
+     */
+    private fun findLocationTransitionHoles(draft: String): List<ContinuityWarning> {
         val lower = draft.lowercase()
-        val hasCar = lower.contains("car") || lower.contains("in the car")
-        val hasKitchen = lower.contains("kitchen")
-        val movesToKitchen = lower.contains("went to the kitchen") ||
-            lower.contains("goes to the kitchen") ||
-            lower.contains("walked to the kitchen") ||
-            lower.contains("entered the kitchen")
-        val hasTransition = listOf("arrived home", "got home", "returned home", "came home", "arrived at home", "drove home", "back home").any(lower::contains)
+        val locationPairs = listOf(
+            listOf("car", "kitchen"),
+            listOf("car", "bedroom"),
+            listOf("car", "living room"),
+            listOf("school", "home"),
+            listOf("office", "home"),
+            listOf("street", "house"),
+            listOf("outside", "inside"),
+            listOf("restaurant", "home")
+        )
+        val transitionWords = listOf(
+            "arrived", "got home", "returned", "came home", "went back", "drove home",
+            "entered", "left", "walked home", "reached", "after the drive", "later at home",
+            "back at", "on the way"
+        )
 
-        if (hasCar && hasKitchen && movesToKitchen && !hasTransition) {
-            return listOf(
-                ContinuityWarning(
-                    type = WarningType.PLOT_HOLE,
-                    title = "Plot hole detected",
-                    details = "A character is established in a car, then appears in the kitchen without a clear transition showing how they got home.",
-                    suggestion = "Add a short transition such as arriving home, entering the house, or another believable route between the locations."
-                )
+        return locationPairs.mapNotNull { (origin, destination) ->
+            val hasOrigin = lower.contains(origin)
+            val hasDestination = lower.contains(destination)
+            if (!hasOrigin || !hasDestination) return@mapNotNull null
+
+            val originIndex = lower.indexOf(origin)
+            val destinationIndex = lower.indexOf(destination, originIndex + origin.length)
+            if (destinationIndex < 0) return@mapNotNull null
+
+            val between = lower.substring(originIndex, destinationIndex)
+            val hasTransition = transitionWords.any(between::contains)
+            if (hasTransition) return@mapNotNull null
+
+            ContinuityWarning(
+                type = WarningType.PLOT_HOLE,
+                title = "Plot hole detected",
+                details = "The draft establishes a character at $origin, then places them at $destination without a clear transition between the locations.",
+                suggestion = "Add a short transition showing how the character moved between the locations, or make the scene break explicit."
             )
         }
-        return emptyList()
     }
+
+    private fun splitSentences(text: String): List<String> =
+        text.split(Regex("(?<=[.!?])\\s+|\\n+")).filter(String::isNotBlank)
 
     private fun meaningfulTerms(text: String): List<String> =
         text.lowercase()
