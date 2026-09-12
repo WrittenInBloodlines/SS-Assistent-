@@ -2,43 +2,40 @@ package com.ss.assistent.assistant
 
 import com.ss.assistent.memory.MemoryEntry
 import com.ss.assistent.memory.MemoryLock
-import java.util.Locale
+import com.ss.assistent.memory.MemoryRetriever
 
 /**
  * Builds a compact prompt context for small local models.
  *
- * This deliberately uses deterministic local scoring instead of another model:
- * the assistant remains fully offline and predictable.
+ * Retrieval stays deterministic and fully offline. MemoryRetriever provides semantic-ish
+ * matching while this class remains responsible for strict prompt-size budgeting and the
+ * preservation rules for sealed memories.
  */
 object PromptContext {
     private const val MAX_MEMORY_ENTRIES = 6
     private const val MAX_MEMORY_CHARS = 2400
     private const val MAX_HISTORY_CHARS = 9000
+    private const val MIN_RELEVANCE_SCORE = 3
 
     fun relevantMemories(memories: List<MemoryEntry>, query: String): List<MemoryEntry> {
         if (memories.isEmpty()) return emptyList()
 
-        val queryTerms = terms(query)
         val sealed = memories.filter { it.lock == MemoryLock.SEALED }
-        val editable = memories.filter { it.lock != MemoryLock.SEALED }
+        val ranked = MemoryRetriever.rank(memories, query)
+            .filter { it.score >= MIN_RELEVANCE_SCORE }
+            .map { it.memory }
 
-        // Sealed memories represent text the user explicitly asked us to preserve.
-        // They are always considered before ordinary relevance scoring so a sealed
-        // instruction is not silently displaced by a more topical editable memory.
-        val rankedEditable = if (queryTerms.isEmpty()) {
-            editable
-        } else {
-            editable
-                .map { memory -> memory to score(memory, queryTerms) }
-                .filter { (_, score) -> score > 0 }
-                .sortedWith(
-                    compareByDescending<Pair<MemoryEntry, Int>> { it.second }
-                        .thenBy { it.first.id }
-                )
-                .map { it.first }
-        }
+        // Sealed memories remain protected from being displaced by topical editable memories.
+        // For a normal query, however, unrelated sealed memories are not injected into the
+        // prompt merely because they are sealed. They must also have a retrieval match.
+        val relevantSealed = ranked.filter { it.lock == MemoryLock.SEALED }
+        val relevantEditable = ranked.filter { it.lock != MemoryLock.SEALED }
+        val ordered = (relevantSealed + relevantEditable).distinctBy { it.id }
 
-        val ordered = (sealed + rankedEditable).distinctBy { it.id }
+        // If there is no lexical/semantic match, do not leak the entire memory store into the
+        // model context. This keeps prompts small and prevents accidental unrelated context.
+        if (ordered.isEmpty()) return emptyList()
+
         var used = 0
         return ordered.take(MAX_MEMORY_ENTRIES).filter { memory ->
             val cost = memory.text.length + memory.category.title.length + 5
@@ -90,19 +87,4 @@ object PromptContext {
             append("Never claim to have performed a device action unless the app actually reports that action as completed.")
         }
     }
-
-    private fun score(memory: MemoryEntry, queryTerms: Set<String>): Int {
-        val memoryTerms = terms(memory.text)
-        val overlap = queryTerms.count { it in memoryTerms }
-        val categoryTerms = terms(memory.category.title)
-        val categoryBoost = queryTerms.count { it in categoryTerms }
-        return overlap * 3 + categoryBoost
-    }
-
-    private fun terms(text: String): Set<String> = text
-        .lowercase(Locale.ROOT)
-        .split(Regex("[^\\p{L}\\p{Nd}]+"))
-        .asSequence()
-        .filter { it.length >= 3 }
-        .toSet()
 }
