@@ -17,6 +17,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -42,6 +46,7 @@ import com.ss.assistent.assistant.LlamaAssistantRuntime
 import com.ss.assistent.assistant.PromptContext
 import com.ss.assistent.assistant.RuntimeResult
 import com.ss.assistent.chat.ConversationRepository
+import com.ss.assistent.memory.MemoryCategory
 import com.ss.assistent.memory.MemoryRepository
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
@@ -49,6 +54,7 @@ import com.ss.assistent.settings.AssistantPreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssistantScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -68,6 +74,9 @@ fun AssistantScreen(onBack: () -> Unit) {
     var generationJob by remember { mutableStateOf<Job?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var activeModel by remember { mutableStateOf<ModelInfo?>(null) }
+    var memoryTarget by remember { mutableStateOf<String?>(null) }
+    var memoryCategory by remember { mutableStateOf(MemoryCategory.FACT) }
+    var memoryMenuExpanded by remember { mutableStateOf(false) }
 
     fun refreshModel() {
         activeModel = modelRepository.getModels().firstOrNull { it.isActive }
@@ -99,6 +108,61 @@ fun AssistantScreen(onBack: () -> Unit) {
                 }) { Text("Clear") }
             },
             dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    memoryTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { memoryTarget = null },
+            title = { Text("Save to memory") },
+            text = {
+                Column {
+                    Text("This will be saved only if you confirm. You can edit or delete it later in Memory.", fontSize = 13.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Memory category", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Spacer(Modifier.height(5.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = memoryMenuExpanded,
+                        onExpandedChange = { memoryMenuExpanded = !memoryMenuExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = memoryCategory.title,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = memoryMenuExpanded) }
+                        )
+                        ExposedDropdownMenu(
+                            expanded = memoryMenuExpanded,
+                            onDismissRequest = { memoryMenuExpanded = false }
+                        ) {
+                            MemoryCategory.values().forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.title) },
+                                    onClick = {
+                                        memoryCategory = category
+                                        memoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(target, modifier = Modifier.padding(12.dp), fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val saved = memoryRepository.add(memoryCategory, target)
+                    status = if (saved != null) "Memory saved." else "That memory already exists."
+                    memoryTarget = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { memoryTarget = null }) { Text("Cancel") }
+            }
         )
     }
 
@@ -154,7 +218,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                 Column(Modifier.padding(18.dp)) {
                     Text("Local assistant", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text("Conversations are saved locally. Explicit memories are reviewed and controlled from Memory.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+                    Text("Conversations are saved locally. Use Remember on a user message when you explicitly want something stored as long-term memory.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
                 }
             }
         }
@@ -164,7 +228,7 @@ fun AssistantScreen(onBack: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(messages) { message -> MessageBubble(message) }
+            items(messages) { message -> MessageBubble(message, onRemember = { memoryTarget = it }) }
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -273,7 +337,7 @@ fun AssistantScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, onRemember: (String) -> Unit) {
     val isUser = message.role == "user"
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -281,8 +345,13 @@ private fun MessageBubble(message: ChatMessage) {
         colors = CardDefaults.cardColors(containerColor = if (isUser) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(15.dp)) {
-            Text(if (isUser) "You" else "Assistant", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(5.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(if (isUser) "You" else "Assistant", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                if (isUser) {
+                    TextButton(onClick = { onRemember(message.content) }) { Text("Remember") }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
             Text(message.content, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
