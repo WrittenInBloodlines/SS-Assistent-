@@ -18,12 +18,20 @@ data class MemoryVersion(
  * Local audit trail for sealed-memory replacements.
  * History is append-only from the UI perspective: changing the current sealed value
  * creates a new version entry instead of destroying the previous exact value.
+ *
+ * History is encrypted with the same Android Keystore-backed mechanism as current memories,
+ * but uses a separate key alias so the two stores remain independently protected.
  */
 class MemoryHistoryRepository(context: Context) {
-    private val preferences = context.getSharedPreferences("assistant_memory_history", Context.MODE_PRIVATE)
+    private val store = EncryptedMemoryStore(
+        context = context,
+        preferencesName = "assistant_memory_history",
+        legacyKey = KEY_VERSIONS,
+        keystoreAlias = "ss_assistent_memory_history_v1"
+    )
 
     fun getForMemory(memoryId: String): List<MemoryVersion> {
-        val raw = preferences.getString(KEY_VERSIONS, null) ?: return emptyList()
+        val raw = store.read() ?: return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -56,11 +64,11 @@ class MemoryHistoryRepository(context: Context) {
     }
 
     fun clearAll() {
-        preferences.edit().remove(KEY_VERSIONS).apply()
+        store.clear()
     }
 
     private fun getAll(): List<MemoryVersion> {
-        val raw = preferences.getString(KEY_VERSIONS, null) ?: return emptyList()
+        val raw = store.read() ?: return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -97,7 +105,7 @@ class MemoryHistoryRepository(context: Context) {
                 put("reason", version.reason)
             })
         }
-        preferences.edit().putString(KEY_VERSIONS, array.toString()).apply()
+        check(store.write(array.toString())) { "Unable to securely persist memory history" }
     }
 
     companion object {
