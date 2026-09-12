@@ -21,14 +21,22 @@ object ContinuityAnalyzer {
     private fun findLoreConflicts(draft: String, facts: List<LoreFact>): List<ContinuityWarning> {
         val lower = draft.lowercase()
         return facts.mapNotNull { fact ->
-            if (!lower.contains(fact.subject.lowercase()) || !lower.contains(fact.attribute.lowercase())) return@mapNotNull null
+            val subjectPresent = lower.contains(fact.subject.lowercase())
+            val attributePresent = attributeAliases(fact.attribute).any { alias ->
+                alias.all { lower.contains(it) }
+            }
+            if (!subjectPresent || !attributePresent) return@mapNotNull null
+
             val sentences = draft.split(Regex("(?<=[.!?])\\s+|\\n+"))
-            val sentence = sentences.firstOrNull {
-                it.lowercase().contains(fact.subject.lowercase()) && it.lowercase().contains(fact.attribute.lowercase())
+            val sentence = sentences.firstOrNull { sentenceText ->
+                val sentenceLower = sentenceText.lowercase()
+                sentenceLower.contains(fact.subject.lowercase()) &&
+                    attributeAliases(fact.attribute).any { alias -> alias.all { sentenceLower.contains(it) } }
             } ?: return@mapNotNull null
+
             val known = fact.value.lowercase()
             val mentionedValue = extractMentionedValue(sentence, fact)
-            if (mentionedValue != null && !mentionedValue.equals(known, true)) {
+            if (mentionedValue != null && !mentionedValue.equals(known, true) && !mentionedValue.contains(known)) {
                 ContinuityWarning(
                     type = WarningType.LORE_CONFLICT,
                     title = "Lore conflict detected",
@@ -39,17 +47,34 @@ object ContinuityAnalyzer {
         }
     }
 
+    private fun attributeAliases(attribute: String): List<List<String>> {
+        val normalized = attribute.lowercase().trim()
+        return when (normalized) {
+            "eye color", "eye colour", "eyes" -> listOf(listOf("eye"), listOf("eyes"), listOf("eye", "color"), listOf("eye", "colour"))
+            "hair color", "hair colour", "hair" -> listOf(listOf("hair"), listOf("hair", "color"), listOf("hair", "colour"))
+            "age" -> listOf(listOf("age"), listOf("years", "old"))
+            "height" -> listOf(listOf("height"), listOf("tall"))
+            else -> listOf(listOf(normalized))
+        }
+    }
+
     private fun extractMentionedValue(sentence: String, fact: LoreFact): String? {
         val lower = sentence.lowercase()
-        val subject = Regex.escape(fact.subject.lowercase())
         val attribute = Regex.escape(fact.attribute.lowercase())
         val afterAttribute = Regex("$attribute\\s*(?:is|are|:|=|was|were)\\s+([^,.!?;]+)", RegexOption.IGNORE_CASE)
             .find(lower)?.groupValues?.getOrNull(1)?.trim()
         if (afterAttribute != null) return afterAttribute
 
+        val subject = Regex.escape(fact.subject.lowercase())
         val hasPattern = Regex("$subject\\s+(?:has|have)\\s+([^,.!?;]+)", RegexOption.IGNORE_CASE)
             .find(lower)?.groupValues?.getOrNull(1)?.trim()
-        return hasPattern?.takeIf { lower.contains(attribute) }
+        if (hasPattern != null) return hasPattern
+
+        if (attributeAliases(fact.attribute).any { alias -> alias.all { lower.contains(it) } }) {
+            val color = listOf("blue", "green", "brown", "dark brown", "light brown", "gray", "grey", "hazel", "black", "white", "red").firstOrNull { lower.contains(it) }
+            if (color != null) return color
+        }
+        return null
     }
 
     private fun findSecretLeaks(draft: String, secrets: List<SecretFact>): List<ContinuityWarning> {
