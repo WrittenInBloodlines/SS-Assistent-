@@ -63,11 +63,11 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Add a local sealed-memory version/history trail and review UI
 - [x] Add deterministic parsing for explicit sealed-memory replacement commands with quoted old/new values
 - [x] Resolve parsed sealed-memory replacement against the user's stored memory without mutating it
-- [ ] Show a sealed-memory replacement confirmation preview in the chat UI
+- [x] Show a sealed-memory replacement confirmation preview in the chat UI
 - [x] Apply a confirmed replacement while preserving every other character/content exactly
 - [x] Add a deterministic sensitivity classifier for memory candidates
-- [ ] Route sensitive memory candidates through an explicit user-choice policy in the save UI
-- [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
+- [x] Route sensitive memory candidates through an explicit user-choice policy in the save UI
+- [x] Avoid storing sensitive information unless the user explicitly chooses to remember it
 - [ ] Add local encrypted storage where appropriate
 - [ ] Add stronger semantic memory retrieval when the local architecture supports it
 
