@@ -47,7 +47,7 @@ jobs:
 
           root = Path("libs/llama.kt/llama-kt/src/main/cpp")
           backend_tokens = (
-              "ggml-opencl", "ggml_opencl", "opencl_lib", "-lopencl",
+              "ggml-opencl", "ggml_opencl", "opencl_lib", "-lopencl", "opencl",
               "lm_ggml_use_opencl", "ggml-vulkan", "ggml_vulkan",
               "vulkan_lib", "lm_ggml_use_vulkan",
           )
