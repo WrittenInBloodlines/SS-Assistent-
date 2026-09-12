@@ -28,7 +28,10 @@ data class ContinuityWarning(
     val title: String,
     val details: String,
     val suggestion: String,
-    val state: WarningState = WarningState.OPEN
+    val state: WarningState = WarningState.OPEN,
+    /** Structured links prevent the UI from guessing a fact by parsing human-readable warning text. */
+    val relatedLoreFactId: String? = null,
+    val relatedSecretId: String? = null
 )
 
 /** Local, user-controlled story canon. It never silently changes facts or secrets. */
@@ -72,15 +75,7 @@ class ContinuityRepository(context: Context) {
                 put("id", fact.id); put("subject", fact.subject); put("attribute", fact.attribute); put("value", fact.value)
             }
         }
-        canonHistory.record(
-            CanonChange(
-                factId = old.id,
-                subject = old.subject,
-                attribute = old.attribute,
-                oldValue = old.value,
-                newValue = updated.value
-            )
-        )
+        canonHistory.record(CanonChange(old.id, old.subject, old.attribute, old.value, updated.value))
         return updated
     }
 
@@ -94,7 +89,9 @@ class ContinuityRepository(context: Context) {
             id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
             subject = subject,
             secret = secret,
-            knownBy = item.optJSONArray("knownBy")?.let { array -> (0 until array.length()).map { array.optString(it) }.filter(String::isNotBlank) } ?: emptyList()
+            knownBy = item.optJSONArray("knownBy")?.let { array ->
+                (0 until array.length()).map { array.optString(it) }.filter(String::isNotBlank)
+            } ?: emptyList()
         )
     }
 
@@ -104,30 +101,50 @@ class ContinuityRepository(context: Context) {
         if (cleanSubject.isEmpty() || cleanSecret.isEmpty()) return null
         val existing = getSecrets()
         if (existing.any { it.subject.equals(cleanSubject, true) && it.secret.equals(cleanSecret, true) }) return null
-        return SecretFact(subject = cleanSubject, secret = cleanSecret, knownBy = knownBy.map(String::trim).filter(String::isNotEmpty)).also {
-            saveSecrets(existing + it)
-        }
+        return SecretFact(
+            subject = cleanSubject,
+            secret = cleanSecret,
+            knownBy = knownBy.map(String::trim).filter(String::isNotEmpty).distinctBy(String::lowercase)
+        ).also { saveSecrets(existing + it) }
     }
 
-    fun getWarnings(includeClosed: Boolean = true): List<ContinuityWarning> {
-        return readArray(KEY_WARNINGS).mapNotNull { item ->
-            runCatching {
-                ContinuityWarning(
-                    id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
-                    type = WarningType.valueOf(item.optString("type")),
-                    title = item.optString("title"),
-                    details = item.optString("details"),
-                    suggestion = item.optString("suggestion"),
-                    state = runCatching { WarningState.valueOf(item.optString("state")) }.getOrDefault(WarningState.OPEN)
-                )
-            }.getOrNull()
-        }.filter { includeClosed || it.state == WarningState.OPEN }
+    fun replaceSecret(id: String, subject: String, secret: String, knownBy: List<String>): SecretFact? {
+        val cleanSubject = subject.trim()
+        val cleanSecret = secret.trim()
+        if (cleanSubject.isEmpty() || cleanSecret.isEmpty()) return null
+        val existing = getSecrets()
+        val old = existing.firstOrNull { it.id == id } ?: return null
+        val updated = old.copy(
+            subject = cleanSubject,
+            secret = cleanSecret,
+            knownBy = knownBy.map(String::trim).filter(String::isNotEmpty).distinctBy(String::lowercase)
+        )
+        if (old == updated) return old
+        saveSecrets(existing.map { if (it.id == id) updated else it })
+        return updated
     }
+
+    fun getWarnings(includeClosed: Boolean = true): List<ContinuityWarning> = readArray(KEY_WARNINGS).mapNotNull { item ->
+        runCatching {
+            ContinuityWarning(
+                id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                type = WarningType.valueOf(item.optString("type")),
+                title = item.optString("title"),
+                details = item.optString("details"),
+                suggestion = item.optString("suggestion"),
+                state = runCatching { WarningState.valueOf(item.optString("state")) }.getOrDefault(WarningState.OPEN),
+                relatedLoreFactId = item.optString("relatedLoreFactId").ifBlank { null },
+                relatedSecretId = item.optString("relatedSecretId").ifBlank { null }
+            )
+        }.getOrNull()
+    }.filter { includeClosed || it.state == WarningState.OPEN }
 
     fun addWarnings(newWarnings: List<ContinuityWarning>) {
         if (newWarnings.isEmpty()) return
         val existing = getWarnings()
-        val deduped = (existing + newWarnings).distinctBy { "${it.type}|${it.title}|${it.details}" }
+        val deduped = (existing + newWarnings).distinctBy {
+            "${it.type}|${it.title}|${it.details}|${it.relatedLoreFactId}|${it.relatedSecretId}"
+        }
         saveWarnings(deduped)
     }
 
@@ -151,6 +168,8 @@ class ContinuityRepository(context: Context) {
             JSONObject().apply {
                 put("id", warning.id); put("type", warning.type.name); put("title", warning.title)
                 put("details", warning.details); put("suggestion", warning.suggestion); put("state", warning.state.name)
+                warning.relatedLoreFactId?.let { put("relatedLoreFactId", it) }
+                warning.relatedSecretId?.let { put("relatedSecretId", it) }
             }
         }
     }
