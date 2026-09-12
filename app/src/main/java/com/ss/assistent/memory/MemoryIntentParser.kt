@@ -8,14 +8,22 @@ object MemoryIntentParser {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return null
 
+        val flags = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        val separator = "\\s*[:\\-]?\\s*"
         val patterns = listOf(
-            Regex("^save this exactly as written\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL),
-            Regex("^remember this exactly\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL),
-            Regex("^remember exactly\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL),
-            Regex("^store this verbatim\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL),
-            Regex("^save exactly as written\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL),
-            Regex("^speichere das exakt wie geschrieben\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL),
-            Regex("^speichere das genau so\\s*[:\\-]?\\s*(.+)$", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
+            Regex("^save this exactly as written$separator(.+)$", flags),
+            Regex("^save exactly as written$separator(.+)$", flags),
+            Regex("^save this verbatim$separator(.+)$", flags),
+            Regex("^remember this exactly$separator(.+)$", flags),
+            Regex("^remember exactly$separator(.+)$", flags),
+            Regex("^remember exactly as written$separator(.+)$", flags),
+            Regex("^store this verbatim$separator(.+)$", flags),
+            Regex("^store exactly as written$separator(.+)$", flags),
+            Regex("^speichere das exakt wie geschrieben$separator(.+)$", flags),
+            Regex("^speichere das genau so$separator(.+)$", flags),
+            Regex("^speichere das wortgetreu$separator(.+)$", flags),
+            Regex("^speichere exakt wie geschrieben$separator(.+)$", flags),
+            Regex("^merke dir das exakt$separator(.+)$", flags)
         )
 
         val match = patterns.firstNotNullOfOrNull { it.find(trimmed) } ?: return null
