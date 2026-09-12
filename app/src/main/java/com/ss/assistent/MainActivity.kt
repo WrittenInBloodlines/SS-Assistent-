@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.ui.screens.AssistantScreen
+import com.ss.assistent.ui.screens.ContinuityScreen
 import com.ss.assistent.ui.screens.MemoryScreen
 import com.ss.assistent.ui.screens.ModelsScreen
 import com.ss.assistent.ui.screens.SettingsScreen
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppScreen { Home, Models, Assistant, Memory, Settings }
+private enum class AppScreen { Home, Models, Assistant, Memory, Continuity, Settings }
 
 @Composable
 private fun SSAssistentApp() {
@@ -64,11 +65,13 @@ private fun SSAssistentApp() {
             onModels = { screen = AppScreen.Models },
             onAssistant = { screen = AppScreen.Assistant },
             onMemory = { screen = AppScreen.Memory },
+            onContinuity = { screen = AppScreen.Continuity },
             onSettings = { screen = AppScreen.Settings }
         )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Assistant -> AssistantScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Memory -> MemoryScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.Continuity -> ContinuityScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Settings -> SettingsScreen(onBack = { screen = AppScreen.Home })
     }
 }
@@ -78,6 +81,7 @@ private fun HomeScreen(
     onModels: () -> Unit,
     onAssistant: () -> Unit,
     onMemory: () -> Unit,
+    onContinuity: () -> Unit,
     onSettings: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -93,7 +97,7 @@ private fun HomeScreen(
         ) {
             item { Header() }
             item { ModelCard(activeModel?.name, modelCount, onModels) }
-            item { QuickActions(onModels, onAssistant, onMemory, onSettings) }
+            item { QuickActions(onModels, onAssistant, onMemory, onContinuity, onSettings) }
             item { ActivityCard() }
             item { PermissionCard() }
         }
@@ -147,7 +151,13 @@ private fun ModelCard(modelName: String?, modelCount: Int, onOpenModels: () -> U
 }
 
 @Composable
-private fun QuickActions(onModels: () -> Unit, onAssistant: () -> Unit, onMemory: () -> Unit, onSettings: () -> Unit) {
+private fun QuickActions(
+    onModels: () -> Unit,
+    onAssistant: () -> Unit,
+    onMemory: () -> Unit,
+    onContinuity: () -> Unit,
+    onSettings: () -> Unit
+) {
     Column {
         SectionTitle("Quick access")
         Spacer(Modifier.height(9.dp))
@@ -158,8 +168,10 @@ private fun QuickActions(onModels: () -> Unit, onAssistant: () -> Unit, onMemory
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("⌁", "Memory", Modifier.weight(1f), onMemory)
-            ActionCard("⚙", "Settings", Modifier.weight(1f), onSettings)
+            ActionCard("◈", "Story", Modifier.weight(1f), onContinuity)
         }
+        Spacer(Modifier.height(10.dp))
+        ActionCard("⚙", "Settings", Modifier.fillMaxWidth(), onSettings)
     }
 }
 
