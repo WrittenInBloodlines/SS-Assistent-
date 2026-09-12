@@ -45,56 +45,38 @@ jobs:
           from pathlib import Path
           import re
 
-          path = Path("libs/llama.kt/llama-kt/src/main/cpp/CMakeLists.txt")
-          text = path.read_text()
+          root = Path("libs/llama.kt/llama-kt/src/main/cpp")
+          cmake_files = list(root.rglob("CMakeLists.txt"))
 
-          # Remove individual OpenCL/Vulkan source, compile-definition and link entries.
-          kept = []
-          for line in text.splitlines(keepends=True):
-              normalized = line.lower()
-              if any(token in normalized for token in (
-                  "ggml-opencl",
-                  "ggml_opencl",
-                  "ggml-opencl-sources",
-                  "ggml_opencl_sources",
-                  "opencl_lib",
-                  "-lopencl",
-                  "lm_ggml_use_opencl",
-                  "ggml-vulkan",
-                  "ggml_vulkan",
-                  "vulkan_lib",
-                  "lm_ggml_use_vulkan",
-              )):
-                  continue
-              kept.append(line)
+          # Remove complete CMake commands/blocks, not individual lines. Removing
+          # individual entries can leave a dangling ')' and break CMake parsing.
+          block_patterns = [
+              r"(?ms)^\\s*set\\(GGML_OPENCL_KERNELS\\b.*?^\\s*\\)\\s*\\n?",
+              r"(?ms)^\\s*set\\(GGML_VULKAN_SOURCES\\b.*?^\\s*\\)\\s*\\n?",
+              r"(?ms)^\\s*file\\(GLOB GGML_VULKAN_SHADER_SOURCES\\b.*?^\\s*\\)\\s*\\n?",
+              r"(?ms)^\\s*find_library\\(VULKAN_LIB\\b.*?\\)\\s*\\n?",
+          ]
+          line_tokens = (
+              "ggml-opencl", "ggml_opencl", "opencl_lib", "-lopencl",
+              "lm_ggml_use_opencl", "ggml-vulkan", "ggml_vulkan",
+              "vulkan_lib", "lm_ggml_use_vulkan",
+          )
 
-          path.write_text("".join(kept))
+          for cmake in cmake_files:
+              text = cmake.read_text()
+              updated = text
+              for pattern in block_patterns:
+                  updated = re.sub(pattern, "", updated)
 
-          # Also remove backend source references from any nearby CMake file that may
-          # be included by the pinned upstream project.
-          cpp_root = path.parent
-          for cmake in cpp_root.rglob("CMakeLists.txt"):
-              if cmake == path:
-                  continue
-              original = cmake.read_text()
-              filtered = []
-              for line in original.splitlines(keepends=True):
+              kept = []
+              for line in updated.splitlines(keepends=True):
                   normalized = line.lower()
-                  if any(token in normalized for token in (
-                      "ggml-opencl",
-                      "ggml_opencl",
-                      "ggml-vulkan",
-                      "ggml_vulkan",
-                      "opencl_lib",
-                      "-lopencl",
-                      "lm_ggml_use_opencl",
-                      "vulkan_lib",
-                      "lm_ggml_use_vulkan",
-                  )):
+                  if any(token in normalized for token in line_tokens):
                       continue
-                  filtered.append(line)
-              updated = "".join(filtered)
-              if updated != original:
+                  kept.append(line)
+              updated = "".join(kept)
+
+              if updated != text:
                   cmake.write_text(updated)
           PY
 
