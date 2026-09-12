@@ -71,7 +71,7 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Encrypt persisted memory and sealed-memory history with Android Keystore-backed AES-GCM
 - [x] Migrate legacy plaintext memory/history payloads into encrypted storage on first successful read
 - [x] Add stronger semantic-ish memory retrieval using deterministic offline token normalization, conservative stemming, phrase matching and a small multilingual synonym map
-- [ ] Add embedding-based semantic retrieval only if it can run locally without undermining privacy or device performance
+- [x] Add local vector semantic retrieval without requiring a second neural model, network access, or unencrypted memory data
 
 ## Phase 3B — Story, lore and continuity intelligence
 
