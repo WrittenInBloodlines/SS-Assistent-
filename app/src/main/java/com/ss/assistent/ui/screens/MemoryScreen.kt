@@ -29,24 +29,32 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.memory.MemoryCategory
 import com.ss.assistent.memory.MemoryEntry
+import com.ss.assistent.memory.MemoryHistoryRepository
 import com.ss.assistent.memory.MemoryLock
 import com.ss.assistent.memory.MemoryRepository
+import com.ss.assistent.memory.MemoryVersion
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 fun MemoryScreen(onBack: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val repository = remember { MemoryRepository(context) }
+    val historyRepository = remember { MemoryHistoryRepository(context) }
     val entries = remember { mutableStateListOf<MemoryEntry>().apply { addAll(repository.getAll()) } }
     var text by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(MemoryCategory.FACT) }
     var menuOpen by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<MemoryEntry?>(null) }
+    var historyTarget by remember { mutableStateOf<MemoryEntry?>(null) }
+    var historyVersions by remember { mutableStateOf<List<MemoryVersion>>(emptyList()) }
     var showClearDialog by remember { mutableStateOf(false) }
     var categoryToClear by remember { mutableStateOf<MemoryCategory?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -72,14 +80,54 @@ fun MemoryScreen(onBack: () -> Unit) {
                     repository.update(entry.id, newCategory, newText)
                 }
                 if (updated == null) {
-                    notice = "Nothing changed or an identical memory already exists."
+                    notice = "Nothing changed, the replacement is too long, or an identical memory already exists."
                 } else {
                     val index = entries.indexOfFirst { it.id == updated.id }
                     if (index >= 0) entries[index] = updated
-                    notice = if (updated.lock == MemoryLock.SEALED) "Sealed memory updated exactly as entered." else "Memory updated."
+                    notice = if (updated.lock == MemoryLock.SEALED) "Sealed memory updated exactly as entered. Previous value saved to history." else "Memory updated."
                 }
                 editing = null
             }
+        )
+    }
+
+    historyTarget?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { historyTarget = null },
+            title = { Text("Sealed memory history") },
+            text = {
+                Column {
+                    Text(
+                        "Previous exact values are kept here as an audit trail. History is not used as the current memory value.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    if (historyVersions.isEmpty()) {
+                        Text("No previous versions yet.", fontSize = 13.sp)
+                    } else {
+                        historyVersions.forEachIndexed { index, version ->
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                Column(Modifier.padding(11.dp)) {
+                                    Text(
+                                        "Version ${historyVersions.size - index} • ${formatTimestamp(version.savedAt)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(version.text, fontSize = 12.sp, lineHeight = 17.sp)
+                                    Spacer(Modifier.height(3.dp))
+                                    Text(version.reason, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            if (index < historyVersions.lastIndex) Spacer(Modifier.height(7.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { historyTarget = null }) { Text("Close") } }
         )
     }
 
@@ -87,7 +135,7 @@ fun MemoryScreen(onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("Forget all memories?") },
-            text = { Text("Every saved memory will be removed from this device. This cannot be undone.") },
+            text = { Text("Every saved memory will be removed from this device, including sealed-memory history. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     repository.clear()
@@ -104,7 +152,7 @@ fun MemoryScreen(onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { categoryToClear = null },
             title = { Text("Forget ${category.title.lowercase()}?") },
-            text = { Text("This removes all ${category.title.lowercase()} memories. Sealed memories are not protected from an explicit Forget action.") },
+            text = { Text("This removes all ${category.title.lowercase()} memories and their sealed-memory history. Sealed memories are not protected from an explicit Forget action.") },
             confirmButton = {
                 TextButton(onClick = {
                     repository.clearCategory(category)
@@ -138,7 +186,7 @@ fun MemoryScreen(onBack: () -> Unit) {
                     Text("Memory rules", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Normal memories may be cleaned up for storage. Sealed memories preserve the exact text you explicitly asked to save. A sealed memory is not shortened or normalized, and it only changes through an explicit replacement.",
+                        "Normal memories may be cleaned up for storage. Sealed memories preserve the exact text you explicitly asked to save. A sealed memory is not shortened or normalized, and it only changes through an explicit replacement. Previous sealed values are kept in a local history trail.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         lineHeight = 19.sp
@@ -186,7 +234,7 @@ fun MemoryScreen(onBack: () -> Unit) {
                         }, enabled = text.isNotBlank()) { Text("Save") }
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text("Exact/sealed capture will be available when the assistant recognizes an explicit request to preserve text exactly.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 16.sp)
+                    Text("Use an explicit exact-memory command in Assistant to create sealed memory with a confirmation preview.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 16.sp)
                 }
             }
         }
@@ -247,6 +295,10 @@ fun MemoryScreen(onBack: () -> Unit) {
                 MemoryCard(
                     entry = entry,
                     onEdit = { editing = entry },
+                    onHistory = {
+                        historyTarget = entry
+                        historyVersions = historyRepository.getForMemory(entry.id)
+                    },
                     onDelete = {
                         repository.delete(entry.id)
                         entries.removeAll { it.id == entry.id }
@@ -259,7 +311,12 @@ fun MemoryScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun MemoryCard(entry: MemoryEntry, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun MemoryCard(
+    entry: MemoryEntry,
+    onEdit: () -> Unit,
+    onHistory: () -> Unit,
+    onDelete: () -> Unit
+) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth()) {
@@ -270,6 +327,9 @@ private fun MemoryCard(entry: MemoryEntry, onEdit: () -> Unit, onDelete: () -> U
                     }
                 }
                 TextButton(onClick = onEdit) { Text("Edit") }
+                if (entry.lock == MemoryLock.SEALED) {
+                    TextButton(onClick = onHistory) { Text("History") }
+                }
                 TextButton(onClick = onDelete) { Text("Delete") }
             }
             Spacer(Modifier.height(5.dp))
@@ -295,7 +355,7 @@ private fun MemoryEditDialog(
             Column {
                 if (entry.lock == MemoryLock.SEALED) {
                     Text(
-                        "This memory is sealed. Editing is an explicit replacement and the replacement will also be stored exactly as entered.",
+                        "This memory is sealed. Editing is an explicit replacement and the replacement will also be stored exactly as entered. The previous value will remain in History.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
@@ -321,3 +381,6 @@ private fun MemoryEditDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
+
+private fun formatTimestamp(timestamp: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp))
