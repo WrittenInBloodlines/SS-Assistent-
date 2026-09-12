@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -80,14 +78,14 @@ private fun Header() {
         )
         Spacer(Modifier.height(5.dp))
         Text(
-            text = "Assistent",
+            text = "Assistant",
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold
         )
         Spacer(Modifier.height(5.dp))
         Text(
-            text = "Dein persönlicher Begleiter für dein Gerät.",
+            text = "Your personal assistant for your device.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 15.sp
         )
@@ -112,8 +110,8 @@ private fun ModelCard() {
                 }
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Kein Modell verbunden", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text("Füge später ein lokales Modell hinzu", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    Text("No model connected", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text("Add a local model later", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 }
                 Box(
                     modifier = Modifier
@@ -123,7 +121,7 @@ private fun ModelCard() {
             }
             Spacer(Modifier.height(17.dp))
             Text(
-                text = "Die App bleibt klein. Modelle werden separat auf deinem Gerät gespeichert.",
+                text = "The app stays small. Models are stored separately on your device.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 19.sp
@@ -135,16 +133,16 @@ private fun ModelCard() {
 @Composable
 private fun QuickActions() {
     Column {
-        SectionTitle("Schnellzugriff")
+        SectionTitle("Quick access")
         Spacer(Modifier.height(9.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ActionCard("✦", "Assistent", Modifier.weight(1f))
-            ActionCard("▣", "Modelle", Modifier.weight(1f))
+            ActionCard("✦", "Assistant", Modifier.weight(1f))
+            ActionCard("▣", "Models", Modifier.weight(1f))
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("⌁", "Memory", Modifier.weight(1f))
-            ActionCard("⚙", "Einstellungen", Modifier.weight(1f))
+            ActionCard("⚙", "Settings", Modifier.weight(1f))
         }
     }
 }
@@ -171,12 +169,12 @@ private fun ActivityCard() {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(20.dp)) {
-            SectionTitle("Zuletzt")
+            SectionTitle("Recent activity")
             Spacer(Modifier.height(14.dp))
-            Text("Noch keine Aktionen", fontWeight = FontWeight.SemiBold)
+            Text("No actions yet", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Wenn dein Assistent später Apps öffnet, Texte vorbereitet oder andere Aufgaben ausführt, erscheinen sie hier.",
+                "When your assistant later opens apps, prepares text, or performs other tasks, they will appear here.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 19.sp
@@ -192,10 +190,10 @@ private fun PermissionCard() {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Kontrolle bleibt bei dir", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("You stay in control", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(Modifier.height(7.dp))
             Text(
-                "Senden, Löschen und andere wichtige Aktionen werden später eine Bestätigung verlangen.",
+                "Sending, deleting, and other important actions will require your confirmation later.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 19.sp
