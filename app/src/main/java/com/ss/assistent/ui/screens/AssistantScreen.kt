@@ -124,6 +124,7 @@ fun AssistantScreen(onBack: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(14.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text("Style: ${preferences.responseStyle.title}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("Generation: ${preferences.maxTokens} tokens • T %.2f".format(preferences.temperature), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                     Text("Local memory: ${memoryRepository.getAll().size} saved", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
                 Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
@@ -211,18 +212,27 @@ fun AssistantScreen(onBack: () -> Unit) {
                                     }
                                     is RuntimeResult.Success -> {
                                         status = "Generating locally..."
+                                        val styleInstruction = when {
+                                            preferences.responseStyle == com.ss.assistent.settings.ResponseStyle.CUSTOM && preferences.customStyleInstruction.isNotBlank() ->
+                                                "${preferences.responseStyle.instruction} Custom instruction: ${preferences.customStyleInstruction}"
+                                            else -> preferences.responseStyle.instruction
+                                        }
                                         val system = ChatMessage(
                                             "system",
                                             PromptContext.buildSystemPrompt(
-                                                styleInstruction = preferences.responseStyle.instruction,
+                                                styleInstruction = styleInstruction,
                                                 memories = memoryRepository.getAll(),
                                                 query = text
                                             )
                                         )
                                         val conversationContext = PromptContext.recentConversation(messages)
                                         var assistantIndex = -1
+                                        val generationSettings = preferences.generationSettings()
 
-                                        runtime.generateStream(listOf(system) + conversationContext).collect { chunk ->
+                                        runtime.generateStream(
+                                            messages = listOf(system) + conversationContext,
+                                            settings = generationSettings
+                                        ).collect { chunk ->
                                             when (chunk) {
                                                 is RuntimeResult.Success -> {
                                                     generatedAssistantText += chunk.text
