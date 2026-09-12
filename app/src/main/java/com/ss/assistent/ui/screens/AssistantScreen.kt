@@ -19,6 +19,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
@@ -117,7 +118,13 @@ fun AssistantScreen(onBack: () -> Unit) {
             title = { Text("Save to memory") },
             text = {
                 Column {
-                    Text("This will be saved only if you confirm. You can edit or delete it later in Memory.", fontSize = 13.sp)
+                    Text("Choose how this message should be stored.", fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Normal memory", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("May be normalized and shortened for normal memory limits.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Exact / sealed memory", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("Preserves the supplied text exactly and does not normalize or shorten it.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                     Spacer(Modifier.height(12.dp))
                     Text("Memory category", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Spacer(Modifier.height(5.dp))
@@ -154,11 +161,22 @@ fun AssistantScreen(onBack: () -> Unit) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    val saved = memoryRepository.add(memoryCategory, target)
-                    status = if (saved != null) "Memory saved." else "That memory already exists."
-                    memoryTarget = null
-                }) { Text("Save") }
+                Row {
+                    TextButton(onClick = {
+                        val saved = memoryRepository.add(memoryCategory, target)
+                        status = if (saved != null) "Memory saved." else "That memory already exists."
+                        memoryTarget = null
+                    }) { Text("Save normal") }
+                    TextButton(onClick = {
+                        val saved = memoryRepository.addExact(memoryCategory, target)
+                        status = when {
+                            saved != null -> "Sealed memory saved exactly."
+                            target.length > 6000 -> "This exact memory is too long to seal."
+                            else -> "That exact memory already exists."
+                        }
+                        memoryTarget = null
+                    }) { Text("Save exact") }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { memoryTarget = null }) { Text("Cancel") }
