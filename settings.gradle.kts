@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "SS-Assistent"
 include(":app")
+include(":llama-kt")
+project(":llama-kt").projectDir = file("libs/llama.kt/llama-kt")
