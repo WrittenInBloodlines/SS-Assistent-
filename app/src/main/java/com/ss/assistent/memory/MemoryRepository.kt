@@ -35,11 +35,16 @@ enum class MemoryCategory(val key: String, val title: String) {
 
 /** Explicit user-controlled memories. Nothing is added automatically. */
 class MemoryRepository(context: Context) {
-    private val preferences = context.getSharedPreferences("assistant_memory", Context.MODE_PRIVATE)
+    private val store = EncryptedMemoryStore(
+        context = context,
+        preferencesName = "assistant_memory",
+        legacyKey = KEY_ENTRIES,
+        keystoreAlias = "ss_assistent_memory_v1"
+    )
     private val historyRepository = MemoryHistoryRepository(context)
 
     fun getAll(): List<MemoryEntry> {
-        val raw = preferences.getString(KEY_ENTRIES, null) ?: return emptyList()
+        val raw = store.read() ?: return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -193,7 +198,7 @@ class MemoryRepository(context: Context) {
     fun count(lock: MemoryLock): Int = getAll().count { it.lock == lock }
 
     fun clear() {
-        preferences.edit().remove(KEY_ENTRIES).apply()
+        store.clear()
         historyRepository.clearAll()
     }
 
@@ -227,7 +232,7 @@ class MemoryRepository(context: Context) {
                 put("lock", entry.lock.name)
             })
         }
-        preferences.edit().putString(KEY_ENTRIES, array.toString()).apply()
+        check(store.write(array.toString())) { "Unable to securely persist memories" }
     }
 
     companion object {
