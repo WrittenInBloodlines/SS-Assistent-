@@ -18,26 +18,29 @@ SS Assistent is being built as a real Android device assistant. The local langua
 
 ## Phase 2 — Assistant personality and conversation quality
 
-- [ ] Add a dedicated assistant system prompt
-- [ ] Add a configurable writing style / response style system
-- [ ] Add concise, normal, detailed and custom style controls
-- [ ] Preserve the user's chosen style between conversations
-- [ ] Add conversation persistence
-- [ ] Add conversation rename, delete and export
+- [x] Add a dedicated assistant system prompt
+- [x] Add a configurable writing style / response style system
+- [x] Add concise, normal, detailed and custom style controls
+- [x] Preserve the user's chosen style between conversations
+- [x] Add conversation persistence
+- [x] Add a clear-conversation action
+- [ ] Add conversation rename and export
 
 ## Phase 3 — Real memory
 
 Memory must be structured and useful rather than simply dumping the entire chat history into every prompt.
 
-- [ ] Short-term conversation context
-- [ ] Long-term user memory store
-- [ ] Explicit memories the user can review, edit and delete
-- [ ] Memory categories such as preferences, projects, people, routines and facts
-- [ ] Memory relevance scoring / retrieval
+- [x] Local long-term memory store foundation
+- [x] Explicit memories the user can review and delete
+- [x] Memory categories such as preferences, projects, people, routines and facts
+- [x] Memory controls and a clear delete action
+- [ ] Add memory editing
+- [ ] Add memory relevance scoring / retrieval
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
-- [ ] Memory controls and a clear "Forget" action
-- [ ] Local encrypted storage where appropriate
-- [ ] Memory-aware prompt assembly with a strict context budget
+- [ ] Add a clear "Forget" workflow for individual memories and categories
+- [ ] Add local encrypted storage where appropriate
+- [ ] Add short-term context management
+- [ ] Add memory-aware prompt assembly with a strict context budget
 
 ## Phase 4 — Device actions
 
