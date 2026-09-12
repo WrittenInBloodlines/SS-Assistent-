@@ -6,6 +6,7 @@ import com.ss.assistent.model.ModelInfo
 import com.tensai.llamakt.GgufMetadata
 import com.tensai.llamakt.LlamaEngine
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Lightweight preflight checks performed before allocating native model memory.
@@ -13,7 +14,7 @@ import java.io.File
  * incompatible inputs without pretending to predict exact device performance.
  */
 object ModelDiagnostics {
-    private const val CONTEXT_TOKENS = 4096
+    const val DEFAULT_CONTEXT_TOKENS = 4096
     private const val MIN_AVAILABLE_MEMORY_BYTES = 900L * 1024L * 1024L
 
     fun inspect(context: Context, model: ModelInfo): DiagnosticResult {
@@ -34,22 +35,54 @@ object ModelDiagnostics {
             return DiagnosticResult.Error("The model architecture could not be identified.")
         }
 
-        val memoryInfo = ActivityManager.MemoryInfo()
         val activityManager = context.getSystemService(ActivityManager::class.java)
-        activityManager?.getMemoryInfo(memoryInfo)
-        if (memoryInfo.availMem in 1 until MIN_AVAILABLE_MEMORY_BYTES) {
+            ?: return DiagnosticResult.Error("Android memory information is unavailable.")
+
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+        if (memoryInfo.availMem < MIN_AVAILABLE_MEMORY_BYTES) {
             return DiagnosticResult.Error(
                 "Android reports too little available memory for safe local inference. Close other apps and try again."
             )
         }
 
         val contextLength = metadata.contextLength
-        val effectiveContext = minOf(contextLength.takeIf { it > 0 } ?: CONTEXT_TOKENS.toLong(), CONTEXT_TOKENS.toLong())
-        return DiagnosticResult.Ready(metadata, effectiveContext.toInt())
+        val effectiveContext = minOf(
+            contextLength.takeIf { it > 0 } ?: DEFAULT_CONTEXT_TOKENS.toLong(),
+            DEFAULT_CONTEXT_TOKENS.toLong()
+        )
+
+        return DiagnosticResult.Ready(
+            metadata = metadata,
+            contextTokens = effectiveContext.toInt(),
+            availableMemoryBytes = memoryInfo.availMem,
+            deviceLowMemory = memoryInfo.lowMemory,
+        )
     }
 }
 
 sealed interface DiagnosticResult {
-    data class Ready(val metadata: GgufMetadata, val contextTokens: Int) : DiagnosticResult
+    data class Ready(
+        val metadata: GgufMetadata,
+        val contextTokens: Int,
+        val availableMemoryBytes: Long,
+        val deviceLowMemory: Boolean,
+    ) : DiagnosticResult {
+        val availableMemoryLabel: String
+            get() {
+                val gb = availableMemoryBytes / (1024.0 * 1024.0 * 1024.0)
+                return "%.1f GB".format(gb)
+            }
+
+        val modelParameterLabel: String
+            get() {
+                val params = metadata.paramCount
+                if (params <= 0) return "Unknown parameters"
+                val billions = params / 1_000_000_000.0
+                return if (billions >= 1.0) "%.1fB parameters".format(billions)
+                else "${(params / 1_000_000.0).roundToInt()}M parameters"
+            }
+    }
+
     data class Error(val message: String) : DiagnosticResult
 }
