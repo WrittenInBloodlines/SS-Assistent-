@@ -29,7 +29,6 @@ data class ContinuityWarning(
     val details: String,
     val suggestion: String,
     val state: WarningState = WarningState.OPEN,
-    /** Structured links prevent the UI from guessing a fact by parsing human-readable warning text. */
     val relatedLoreFactId: String? = null,
     val relatedSecretId: String? = null
 )
@@ -55,11 +54,7 @@ class ContinuityRepository(context: Context) {
         val existing = getLoreFacts()
         if (existing.any { it.subject.equals(cleanSubject, true) && it.attribute.equals(cleanAttribute, true) }) return null
         return LoreFact(subject = cleanSubject, attribute = cleanAttribute, value = cleanValue).also {
-            writeArray(KEY_LORE, existing + it) { fact ->
-                JSONObject().apply {
-                    put("id", fact.id); put("subject", fact.subject); put("attribute", fact.attribute); put("value", fact.value)
-                }
-            }
+            writeArray(KEY_LORE, existing + it) { fact -> loreJson(fact) }
         }
     }
 
@@ -70,11 +65,7 @@ class ContinuityRepository(context: Context) {
         val old = existing.firstOrNull { it.id == id } ?: return null
         if (old.value == replacement) return old
         val updated = old.copy(value = replacement)
-        writeArray(KEY_LORE, existing.map { if (it.id == id) updated else it }) { fact ->
-            JSONObject().apply {
-                put("id", fact.id); put("subject", fact.subject); put("attribute", fact.attribute); put("value", fact.value)
-            }
-        }
+        writeArray(KEY_LORE, existing.map { if (it.id == id) updated else it }) { fact -> loreJson(fact) }
         canonHistory.record(CanonChange(old.id, old.subject, old.attribute, old.value, updated.value))
         return updated
     }
@@ -104,7 +95,7 @@ class ContinuityRepository(context: Context) {
         return SecretFact(
             subject = cleanSubject,
             secret = cleanSecret,
-            knownBy = knownBy.map(String::trim).filter(String::isNotEmpty).distinctBy(String::lowercase)
+            knownBy = normalizeNames(knownBy)
         ).also { saveSecrets(existing + it) }
     }
 
@@ -114,14 +105,78 @@ class ContinuityRepository(context: Context) {
         if (cleanSubject.isEmpty() || cleanSecret.isEmpty()) return null
         val existing = getSecrets()
         val old = existing.firstOrNull { it.id == id } ?: return null
-        val updated = old.copy(
-            subject = cleanSubject,
-            secret = cleanSecret,
-            knownBy = knownBy.map(String::trim).filter(String::isNotEmpty).distinctBy(String::lowercase)
-        )
+        val updated = old.copy(subject = cleanSubject, secret = cleanSecret, knownBy = normalizeNames(knownBy))
         if (old == updated) return old
         saveSecrets(existing.map { if (it.id == id) updated else it })
         return updated
+    }
+
+    fun getTimelines(): List<TimelineScene> = readArray(KEY_TIMELINE)
+        .mapNotNull { item ->
+            val title = item.optString("title")
+            val location = item.optString("location")
+            if (title.isBlank() || location.isBlank()) null else TimelineScene(
+                id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                title = title,
+                order = item.optInt("order", 0),
+                location = location,
+                characterIds = item.optJSONArray("characterIds")?.let { a ->
+                    (0 until a.length()).map { a.optString(it) }.filter(String::isNotBlank)
+                } ?: emptyList(),
+                notes = item.optString("notes")
+            )
+        }.sortedWith(compareBy<TimelineScene> { it.order }.thenBy { it.title.lowercase() })
+
+    fun addTimelineScene(title: String, order: Int, location: String, characterIds: List<String> = emptyList(), notes: String = ""): TimelineScene? {
+        val cleanTitle = title.trim()
+        val cleanLocation = location.trim()
+        if (cleanTitle.isEmpty() || cleanLocation.isEmpty()) return null
+        val existing = getTimelines()
+        if (existing.any { it.title.equals(cleanTitle, true) && it.order == order }) return null
+        return TimelineScene(
+            id = UUID.randomUUID().toString(),
+            title = cleanTitle,
+            order = order,
+            location = cleanLocation,
+            characterIds = normalizeNames(characterIds),
+            notes = notes.trim()
+        ).also { saveTimelines(existing + it) }
+    }
+
+    fun removeTimelineScene(id: String): Boolean {
+        val existing = getTimelines()
+        if (existing.none { it.id == id }) return false
+        saveTimelines(existing.filterNot { it.id == id })
+        return true
+    }
+
+    fun getKnowledgeRules(): List<CharacterKnowledgeRule> = readArray(KEY_KNOWLEDGE_RULES).mapNotNull { item ->
+        val characterId = item.optString("characterId")
+        val characterName = item.optString("characterName")
+        val secretId = item.optString("secretId")
+        if (characterId.isBlank() || characterName.isBlank() || secretId.isBlank()) null else CharacterKnowledgeRule(
+            characterId = characterId,
+            characterName = characterName,
+            secretId = secretId,
+            discoverySceneOrder = if (item.has("discoverySceneOrder") && !item.isNull("discoverySceneOrder")) item.optInt("discoverySceneOrder") else null,
+            allowNarratedKnowledge = item.optBoolean("allowNarratedKnowledge", true),
+            allowExplicitReveal = item.optBoolean("allowExplicitReveal", true)
+        )
+    }
+
+    fun upsertKnowledgeRule(rule: CharacterKnowledgeRule): CharacterKnowledgeRule? {
+        if (rule.characterId.isBlank() || rule.characterName.isBlank() || rule.secretId.isBlank()) return null
+        val updated = getKnowledgeRules().filterNot { it.characterId == rule.characterId && it.secretId == rule.secretId } + rule
+        saveKnowledgeRules(updated)
+        return rule
+    }
+
+    fun removeKnowledgeRule(characterId: String, secretId: String): Boolean {
+        val existing = getKnowledgeRules()
+        val filtered = existing.filterNot { it.characterId == characterId && it.secretId == secretId }
+        if (filtered.size == existing.size) return false
+        saveKnowledgeRules(filtered)
+        return true
     }
 
     fun getWarnings(includeClosed: Boolean = true): List<ContinuityWarning> = readArray(KEY_WARNINGS).mapNotNull { item ->
@@ -154,25 +209,39 @@ class ContinuityRepository(context: Context) {
 
     fun clearWarnings() = preferences.edit().remove(KEY_WARNINGS).apply()
 
-    private fun saveSecrets(entries: List<SecretFact>) {
-        writeArray(KEY_SECRETS, entries) { secret ->
-            JSONObject().apply {
-                put("id", secret.id); put("subject", secret.subject); put("secret", secret.secret)
-                put("knownBy", JSONArray(secret.knownBy))
-            }
+    private fun saveSecrets(entries: List<SecretFact>) = writeArray(KEY_SECRETS, entries) { secret ->
+        JSONObject().apply { put("id", secret.id); put("subject", secret.subject); put("secret", secret.secret); put("knownBy", JSONArray(secret.knownBy)) }
+    }
+
+    private fun saveTimelines(entries: List<TimelineScene>) = writeArray(KEY_TIMELINE, entries) { scene ->
+        JSONObject().apply {
+            put("id", scene.id); put("title", scene.title); put("order", scene.order); put("location", scene.location)
+            put("characterIds", JSONArray(scene.characterIds)); put("notes", scene.notes)
         }
     }
 
-    private fun saveWarnings(entries: List<ContinuityWarning>) {
-        writeArray(KEY_WARNINGS, entries) { warning ->
-            JSONObject().apply {
-                put("id", warning.id); put("type", warning.type.name); put("title", warning.title)
-                put("details", warning.details); put("suggestion", warning.suggestion); put("state", warning.state.name)
-                warning.relatedLoreFactId?.let { put("relatedLoreFactId", it) }
-                warning.relatedSecretId?.let { put("relatedSecretId", it) }
-            }
+    private fun saveKnowledgeRules(entries: List<CharacterKnowledgeRule>) = writeArray(KEY_KNOWLEDGE_RULES, entries) { rule ->
+        JSONObject().apply {
+            put("characterId", rule.characterId); put("characterName", rule.characterName); put("secretId", rule.secretId)
+            rule.discoverySceneOrder?.let { put("discoverySceneOrder", it) }
+            put("allowNarratedKnowledge", rule.allowNarratedKnowledge); put("allowExplicitReveal", rule.allowExplicitReveal)
         }
     }
+
+    private fun saveWarnings(entries: List<ContinuityWarning>) = writeArray(KEY_WARNINGS, entries) { warning ->
+        JSONObject().apply {
+            put("id", warning.id); put("type", warning.type.name); put("title", warning.title); put("details", warning.details)
+            put("suggestion", warning.suggestion); put("state", warning.state.name)
+            warning.relatedLoreFactId?.let { put("relatedLoreFactId", it) }
+            warning.relatedSecretId?.let { put("relatedSecretId", it) }
+        }
+    }
+
+    private fun loreJson(fact: LoreFact) = JSONObject().apply {
+        put("id", fact.id); put("subject", fact.subject); put("attribute", fact.attribute); put("value", fact.value)
+    }
+
+    private fun normalizeNames(names: List<String>): List<String> = names.map(String::trim).filter(String::isNotEmpty).distinctBy(String::lowercase)
 
     private fun readArray(key: String): List<JSONObject> {
         val raw = preferences.getString(key, null) ?: return emptyList()
@@ -192,5 +261,7 @@ class ContinuityRepository(context: Context) {
         private const val KEY_LORE = "lore"
         private const val KEY_SECRETS = "secrets"
         private const val KEY_WARNINGS = "warnings"
+        private const val KEY_TIMELINE = "timeline"
+        private const val KEY_KNOWLEDGE_RULES = "knowledge_rules"
     }
 }
