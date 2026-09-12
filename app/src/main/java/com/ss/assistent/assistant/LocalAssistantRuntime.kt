@@ -1,13 +1,11 @@
 package com.ss.assistent.assistant
 
 import com.ss.assistent.model.ModelInfo
+import com.ss.assistent.settings.GenerationSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-/**
- * Compatibility fallback for tests or future runtime implementations.
- * It deliberately never pretends that a model has generated an answer.
- */
+/** Compatibility fallback for tests or future runtime implementations. */
 class LocalAssistantRuntime : AssistantRuntime {
     private var loadedModel: ModelInfo? = null
 
@@ -20,16 +18,14 @@ class LocalAssistantRuntime : AssistantRuntime {
 
     override suspend fun generate(
         messages: List<ChatMessage>,
-        maxTokens: Int
-    ): RuntimeResult {
-        return RuntimeResult.Error(
-            "Local inference is not available in the fallback runtime."
-        )
-    }
+        settings: GenerationSettings
+    ): RuntimeResult = RuntimeResult.Error(
+        "Local inference is not available in the fallback runtime."
+    )
 
     override fun generateStream(
         messages: List<ChatMessage>,
-        maxTokens: Int
+        settings: GenerationSettings
     ): Flow<RuntimeResult> = flowOf(
         RuntimeResult.Error("Local inference is not available in the fallback runtime.")
     )
