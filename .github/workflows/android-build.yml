@@ -43,6 +43,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           root = Path("libs/llama.kt/llama-kt/src/main/cpp")
           backend_tokens = (
@@ -50,9 +51,10 @@ jobs:
               "lm_ggml_use_opencl", "ggml-vulkan", "ggml_vulkan",
               "vulkan_lib", "lm_ggml_use_vulkan",
           )
-          command_names = ("set", "file", "find_library", "target_link_libraries")
 
-          def remove_backend_commands(text: str) -> str:
+          def remove_complete_commands(text: str) -> str:
+              """Remove only complete CMake commands for disabled backend definitions."""
+              command_names = {"set", "file", "find_library"}
               result = []
               index = 0
               length = len(text)
@@ -97,9 +99,21 @@ jobs:
 
               return "".join(result)
 
+          def remove_opencl_foreach_blocks(text: str) -> str:
+              """Remove the OpenCL kernel-generation foreach as one balanced block."""
+              pattern = re.compile(
+                  r"(?ms)^\s*foreach\s*\(\s*kernel\s+\$\{GGML_OPENCL_KERNELS\}\s*\).*?^\s*endforeach\s*\(\s*\)\s*\n?"
+              )
+              return pattern.sub("", text)
+
           for cmake in root.rglob("CMakeLists.txt"):
               original = cmake.read_text()
-              updated = remove_backend_commands(original)
+              updated = remove_complete_commands(original)
+              updated = remove_opencl_foreach_blocks(updated)
+
+              # Remove disabled-backend entries line-by-line from multiline CMake commands.
+              # This intentionally keeps the surrounding target_link_libraries(),
+              # target_compile_options(), include_directories(), etc. structurally intact.
               kept_lines = []
               for line in updated.splitlines(keepends=True):
                   lowered = line.lower()
@@ -107,6 +121,7 @@ jobs:
                       continue
                   kept_lines.append(line)
               updated = "".join(kept_lines)
+
               if updated != original:
                   cmake.write_text(updated)
           PY
