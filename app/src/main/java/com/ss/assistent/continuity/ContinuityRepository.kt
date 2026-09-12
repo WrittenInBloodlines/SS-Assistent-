@@ -66,7 +66,15 @@ class ContinuityRepository(context: Context) {
         if (old.value == replacement) return old
         val updated = old.copy(value = replacement)
         writeArray(KEY_LORE, existing.map { if (it.id == id) updated else it }) { fact -> loreJson(fact) }
-        canonHistory.record(CanonChange(old.id, old.subject, old.attribute, old.value, updated.value))
+        canonHistory.record(
+            CanonChange(
+                factId = old.id,
+                subject = old.subject,
+                attribute = old.attribute,
+                oldValue = old.value,
+                newValue = updated.value
+            )
+        )
         return updated
     }
 
