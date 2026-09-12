@@ -43,40 +43,71 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           root = Path("libs/llama.kt/llama-kt/src/main/cpp")
-          cmake_files = list(root.rglob("CMakeLists.txt"))
-
-          # Remove complete CMake commands/blocks, not individual lines. Removing
-          # individual entries can leave a dangling ')' and break CMake parsing.
-          block_patterns = [
-              r"(?ms)^\\s*set\\(GGML_OPENCL_KERNELS\\b.*?^\\s*\\)\\s*\\n?",
-              r"(?ms)^\\s*set\\(GGML_VULKAN_SOURCES\\b.*?^\\s*\\)\\s*\\n?",
-              r"(?ms)^\\s*file\\(GLOB GGML_VULKAN_SHADER_SOURCES\\b.*?^\\s*\\)\\s*\\n?",
-              r"(?ms)^\\s*find_library\\(VULKAN_LIB\\b.*?\\)\\s*\\n?",
-          ]
-          line_tokens = (
+          backend_tokens = (
               "ggml-opencl", "ggml_opencl", "opencl_lib", "-lopencl",
               "lm_ggml_use_opencl", "ggml-vulkan", "ggml_vulkan",
               "vulkan_lib", "lm_ggml_use_vulkan",
           )
+          command_names = ("set", "file", "find_library", "target_link_libraries")
 
-          for cmake in cmake_files:
-              text = cmake.read_text()
-              updated = text
-              for pattern in block_patterns:
-                  updated = re.sub(pattern, "", updated)
+          def remove_backend_commands(text: str) -> str:
+              result = []
+              index = 0
+              length = len(text)
 
-              kept = []
+              while index < length:
+                  line_start = index == 0 or text[index - 1] == "\n"
+                  if line_start:
+                      cursor = index
+                      while cursor < length and text[cursor] in " \t":
+                          cursor += 1
+                      name_start = cursor
+                      while cursor < length and (text[cursor].isalnum() or text[cursor] == "_"):
+                          cursor += 1
+                      command_name = text[name_start:cursor].lower()
+
+                      if command_name in command_names:
+                          while cursor < length and text[cursor].isspace():
+                              cursor += 1
+                          if cursor < length and text[cursor] == "(":
+                              depth = 0
+                              end = cursor
+                              while end < length:
+                                  if text[end] == "(":
+                                      depth += 1
+                                  elif text[end] == ")":
+                                      depth -= 1
+                                      if depth == 0:
+                                          end += 1
+                                          break
+                                  end += 1
+                              command_text = text[name_start:end].lower()
+                              if any(token in command_text for token in backend_tokens):
+                                  index = end
+                                  while index < length and text[index] in " \t":
+                                      index += 1
+                                  if index < length and text[index] == "\n":
+                                      index += 1
+                                  continue
+
+                  result.append(text[index])
+                  index += 1
+
+              return "".join(result)
+
+          for cmake in root.rglob("CMakeLists.txt"):
+              original = cmake.read_text()
+              updated = remove_backend_commands(original)
+              kept_lines = []
               for line in updated.splitlines(keepends=True):
-                  normalized = line.lower()
-                  if any(token in normalized for token in line_tokens):
+                  lowered = line.lower()
+                  if any(token in lowered for token in backend_tokens):
                       continue
-                  kept.append(line)
-              updated = "".join(kept)
-
-              if updated != text:
+                  kept_lines.append(line)
+              updated = "".join(kept_lines)
+              if updated != original:
                   cmake.write_text(updated)
           PY
 
