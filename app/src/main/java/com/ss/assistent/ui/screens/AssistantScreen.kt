@@ -29,8 +29,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,25 +48,30 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AssistantScreen(onBack: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val modelRepository = remember { ModelRepository(context) }
     val conversationRepository = remember { ConversationRepository(context) }
     val memoryRepository = remember { MemoryRepository(context) }
     val preferences = remember { AssistantPreferences(context) }
     val runtime = remember { LlamaAssistantRuntime(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    val messages = remember { mutableStateListOf<ChatMessage>().apply { addAll(conversationRepository.loadMessages()) } }
+    val messages = remember {
+        mutableStateListOf<ChatMessage>().apply {
+            addAll(conversationRepository.loadMessages())
+        }
+    }
     var input by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Ready for local conversation.") }
     var busy by remember { mutableStateOf(false) }
     var generationJob by remember { mutableStateOf<Job?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
 
+    val latestGenerationJob by rememberUpdatedState(generationJob)
     val activeModel = remember { modelRepository.getModels().firstOrNull { it.isActive } }
 
     DisposableEffect(Unit) {
         onDispose {
-            generationJob?.cancel()
+            latestGenerationJob?.cancel()
             runtime.unload()
         }
     }
@@ -92,10 +99,17 @@ fun AssistantScreen(onBack: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Assistant", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Text(activeModel?.name ?: "No active model", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                Text(
+                    activeModel?.name ?: "No active model",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp
+                )
             }
             if (messages.isNotEmpty()) {
-                OutlinedButton(onClick = { if (!busy) showClearDialog = true }, enabled = !busy) { Text("Clear") }
+                OutlinedButton(
+                    onClick = { if (!busy) showClearDialog = true },
+                    enabled = !busy
+                ) { Text("Clear") }
             }
         }
 
@@ -108,8 +122,16 @@ fun AssistantScreen(onBack: () -> Unit) {
         ) {
             Row(Modifier.fillMaxWidth().padding(14.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text("Style: ${preferences.responseStyle.title}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                    Text("Local memory: ${memoryRepository.getAll().size} saved", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Text(
+                        "Style: ${preferences.responseStyle.title}",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        "Local memory: ${memoryRepository.getAll().size} saved",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
                 }
                 Text(status, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
             }
@@ -126,7 +148,12 @@ fun AssistantScreen(onBack: () -> Unit) {
                 Column(Modifier.padding(18.dp)) {
                     Text("Local assistant", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text("Conversations are saved locally. Explicit memories can be reviewed and deleted from Memory.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+                    Text(
+                        "Conversations are saved locally. Explicit memories can be reviewed and deleted from Memory.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
                 }
             }
         }
@@ -163,10 +190,12 @@ fun AssistantScreen(onBack: () -> Unit) {
                     }
                     Spacer(Modifier.width(8.dp))
                 }
+
                 Button(
                     onClick = {
                         val text = input.trim()
                         if (text.isEmpty() || busy) return@Button
+
                         val model = activeModel
                         if (model == null) {
                             status = "No active model. Add a GGUF model in Models."
@@ -180,57 +209,84 @@ fun AssistantScreen(onBack: () -> Unit) {
                         status = "Checking model..."
 
                         generationJob = scope.launch {
-                            when (val loadResult = runtime.load(model)) {
-                                is RuntimeResult.Error -> {
-                                    status = loadResult.message
-                                    busy = false
-                                }
-                                is RuntimeResult.Success -> {
-                                    status = "Generating locally..."
-                                    val memories = memoryRepository.getAll()
-                                    val memoryText = if (memories.isEmpty()) "No saved memories are available." else memories.joinToString("\n") { "- ${it.category.title}: ${it.text}" }
-                                    val system = ChatMessage(
-                                        "system",
-                                        "You are SS Assistent, a local Android device assistant. ${preferences.responseStyle.instruction}\n" +
-                                            "Use these user-approved memories only when relevant:\n$memoryText\n" +
-                                            "Never claim to have performed a device action unless the app actually reports that action as completed."
-                                    )
+                            var generatedAssistantText = ""
+                            var completedNormally = false
 
-                                    var assistantIndex = -1
-                                    var assistantText = ""
-                                    runtime.generateStream(listOf(system) + messages.toList()).collect { chunk ->
-                                        when (chunk) {
-                                            is RuntimeResult.Success -> {
-                                                assistantText += chunk.text
-                                                if (assistantIndex == -1) {
-                                                    assistantIndex = messages.size
-                                                    messages.add(ChatMessage("assistant", assistantText))
-                                                } else {
-                                                    messages[assistantIndex] = ChatMessage("assistant", assistantText)
-                                                }
+                            try {
+                                when (val loadResult = runtime.load(model)) {
+                                    is RuntimeResult.Error -> {
+                                        status = loadResult.message
+                                    }
+
+                                    is RuntimeResult.Success -> {
+                                        status = "Generating locally..."
+                                        val memories = memoryRepository.getAll()
+                                        val memoryText = if (memories.isEmpty()) {
+                                            "No saved memories are available."
+                                        } else {
+                                            memories.joinToString("\n") {
+                                                "- ${it.category.title}: ${it.text}"
                                             }
-                                            is RuntimeResult.Error -> {
-                                                if (assistantIndex == -1) {
+                                        }
+
+                                        val system = ChatMessage(
+                                            "system",
+                                            "You are SS Assistent, a local Android device assistant. " +
+                                                "${preferences.responseStyle.instruction}\n" +
+                                                "Use these user-approved memories only when relevant:\n" +
+                                                "$memoryText\n" +
+                                                "Never claim to have performed a device action unless the app actually reports that action as completed."
+                                        )
+
+                                        var assistantIndex = -1
+                                        runtime.generateStream(
+                                            listOf(system) + messages.toList()
+                                        ).collect { chunk ->
+                                            when (chunk) {
+                                                is RuntimeResult.Success -> {
+                                                    generatedAssistantText += chunk.text
+                                                    if (assistantIndex == -1) {
+                                                        assistantIndex = messages.size
+                                                        messages.add(
+                                                            ChatMessage(
+                                                                "assistant",
+                                                                generatedAssistantText
+                                                            )
+                                                        )
+                                                    } else {
+                                                        messages[assistantIndex] = ChatMessage(
+                                                            "assistant",
+                                                            generatedAssistantText
+                                                        )
+                                                    }
+                                                }
+
+                                                is RuntimeResult.Error -> {
                                                     status = chunk.message
-                                                } else {
-                                                    status = "Generation stopped with an error."
                                                 }
                                             }
                                         }
-                                    }
 
-                                    if (assistantText.isNotBlank()) {
-                                        conversationRepository.saveMessages(messages)
+                                        completedNormally = true
+                                        if (generatedAssistantText.isNotBlank()) {
+                                            conversationRepository.saveMessages(messages)
+                                        }
                                         status = "Ready"
                                     }
-                                    busy = false
                                 }
+                            } finally {
+                                if (!completedNormally && generatedAssistantText.isNotBlank()) {
+                                    conversationRepository.saveMessages(messages)
+                                }
+                                busy = false
+                                generationJob = null
                             }
-                            generationJob = null
                         }
                     },
                     enabled = input.isNotBlank() && !busy
-                ) { Text(if (busy) "Working..." else "Send") }
+                ) {
+                    Text("Send")
+                }
             }
         }
     }
@@ -242,10 +298,21 @@ private fun MessageBubble(message: ChatMessage) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isUser) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isUser) {
+                MaterialTheme.colorScheme.surfaceVariant
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        )
     ) {
         Column(Modifier.padding(15.dp)) {
-            Text(if (isUser) "You" else "Assistant", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (isUser) "You" else "Assistant",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(Modifier.height(5.dp))
             Text(message.content, fontSize = 14.sp, lineHeight = 20.sp)
         }
