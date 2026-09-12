@@ -99,6 +99,21 @@ class MemoryRepository(context: Context) {
     }
 
     /**
+     * Finds a sealed memory by exact character-for-character value.
+     * No normalization or fuzzy matching is used because this lookup is used for explicit
+     * user-authorized replacement commands.
+     */
+    fun findSealedExact(text: String): MemoryEntry? =
+        getAll().firstOrNull { it.lock == MemoryLock.SEALED && it.text == text }
+
+    /**
+     * Finds sealed memories whose text exactly matches the supplied value. Returning a list
+     * makes ambiguity explicit if persistence ever contains duplicate sealed values.
+     */
+    fun findAllSealedExact(text: String): List<MemoryEntry> =
+        getAll().filter { it.lock == MemoryLock.SEALED && it.text == text }
+
+    /**
      * Updates a sealed memory only through an explicit replacement operation.
      * No normalization is applied, so the replacement becomes the new exact sealed value.
      * The previous exact value is recorded before replacement.
@@ -134,6 +149,28 @@ class MemoryRepository(context: Context) {
         return replaceEntry(
             id,
             MemoryEntry(id = id, category = category, text = exactReplacement, lock = MemoryLock.SEALED)
+        )
+    }
+
+    /**
+     * Performs a replacement only when the caller can prove that the currently stored value
+     * is the exact value the user named. This is the preferred primitive for natural-language
+     * replacement commands because it prevents changing the wrong sealed memory.
+     */
+    fun replaceSealedExact(
+        previousText: String,
+        replacementText: String,
+        explicitOverride: Boolean
+    ): MemoryEntry? {
+        if (!explicitOverride || previousText.isEmpty() || replacementText.isEmpty()) return null
+        val matches = findAllSealedExact(previousText)
+        if (matches.size != 1) return null
+        val existing = matches.single()
+        return updateSealed(
+            id = existing.id,
+            category = existing.category,
+            exactReplacement = replacementText,
+            explicitOverride = true
         )
     }
 
