@@ -1,9 +1,11 @@
 package com.ss.assistent.assistant
 
 import com.ss.assistent.model.ModelInfo
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
- * Temporary runtime implementation used until the native GGUF engine is wired in.
+ * Compatibility fallback for tests or future runtime implementations.
  * It deliberately never pretends that a model has generated an answer.
  */
 class LocalAssistantRuntime : AssistantRuntime {
@@ -12,7 +14,7 @@ class LocalAssistantRuntime : AssistantRuntime {
     override suspend fun load(model: ModelInfo): RuntimeResult {
         loadedModel = model
         return RuntimeResult.Error(
-            "The GGUF model is imported, but the native inference engine is not connected yet."
+            "The GGUF model is imported, but this fallback runtime does not perform inference."
         )
     }
 
@@ -21,9 +23,16 @@ class LocalAssistantRuntime : AssistantRuntime {
         maxTokens: Int
     ): RuntimeResult {
         return RuntimeResult.Error(
-            "Local inference is not available yet. Connect the GGUF runtime before generating text."
+            "Local inference is not available in the fallback runtime."
         )
     }
+
+    override fun generateStream(
+        messages: List<ChatMessage>,
+        maxTokens: Int
+    ): Flow<RuntimeResult> = flowOf(
+        RuntimeResult.Error("Local inference is not available in the fallback runtime.")
+    )
 
     override fun unload() {
         loadedModel = null
