@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.assistant.ChatMessage
 import com.ss.assistent.assistant.LlamaAssistantRuntime
+import com.ss.assistent.assistant.PromptContext
 import com.ss.assistent.assistant.RuntimeResult
 import com.ss.assistent.chat.ConversationRepository
 import com.ss.assistent.memory.MemoryRepository
@@ -221,26 +222,19 @@ fun AssistantScreen(onBack: () -> Unit) {
                                     is RuntimeResult.Success -> {
                                         status = "Generating locally..."
                                         val memories = memoryRepository.getAll()
-                                        val memoryText = if (memories.isEmpty()) {
-                                            "No saved memories are available."
-                                        } else {
-                                            memories.joinToString("\n") {
-                                                "- ${it.category.title}: ${it.text}"
-                                            }
-                                        }
-
                                         val system = ChatMessage(
                                             "system",
-                                            "You are SS Assistent, a local Android device assistant. " +
-                                                "${preferences.responseStyle.instruction}\n" +
-                                                "Use these user-approved memories only when relevant:\n" +
-                                                "$memoryText\n" +
-                                                "Never claim to have performed a device action unless the app actually reports that action as completed."
+                                            PromptContext.buildSystemPrompt(
+                                                styleInstruction = preferences.responseStyle.instruction,
+                                                memories = memories,
+                                                query = text
+                                            )
                                         )
+                                        val conversationContext = PromptContext.recentConversation(messages)
 
                                         var assistantIndex = -1
                                         runtime.generateStream(
-                                            listOf(system) + messages.toList()
+                                            listOf(system) + conversationContext
                                         ).collect { chunk ->
                                             when (chunk) {
                                                 is RuntimeResult.Success -> {
