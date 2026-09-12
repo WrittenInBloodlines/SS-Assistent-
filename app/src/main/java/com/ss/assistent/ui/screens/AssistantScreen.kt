@@ -41,6 +41,7 @@ import com.ss.assistent.chat.ConversationRepository
 import com.ss.assistent.memory.MemoryRepository
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.settings.AssistantPreferences
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
@@ -56,12 +57,16 @@ fun AssistantScreen(onBack: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Ready for local conversation.") }
     var busy by remember { mutableStateOf(false) }
+    var generationJob by remember { mutableStateOf<Job?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
 
     val activeModel = remember { modelRepository.getModels().firstOrNull { it.isActive } }
 
     DisposableEffect(Unit) {
-        onDispose { runtime.unload() }
+        onDispose {
+            generationJob?.cancel()
+            runtime.unload()
+        }
     }
 
     if (showClearDialog) {
@@ -147,6 +152,17 @@ fun AssistantScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(9.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (busy) {
+                    OutlinedButton(onClick = {
+                        generationJob?.cancel()
+                        generationJob = null
+                        busy = false
+                        status = "Generation stopped."
+                    }) {
+                        Text("Stop")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
                 Button(
                     onClick = {
                         val text = input.trim()
@@ -163,7 +179,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                         busy = true
                         status = "Checking model..."
 
-                        scope.launch {
+                        generationJob = scope.launch {
                             when (val loadResult = runtime.load(model)) {
                                 is RuntimeResult.Error -> {
                                     status = loadResult.message
@@ -179,17 +195,38 @@ fun AssistantScreen(onBack: () -> Unit) {
                                             "Use these user-approved memories only when relevant:\n$memoryText\n" +
                                             "Never claim to have performed a device action unless the app actually reports that action as completed."
                                     )
-                                    when (val result = runtime.generate(listOf(system) + messages.toList())) {
-                                        is RuntimeResult.Success -> {
-                                            messages.add(ChatMessage("assistant", result.text))
-                                            conversationRepository.saveMessages(messages)
-                                            status = "Ready"
+
+                                    var assistantIndex = -1
+                                    var assistantText = ""
+                                    runtime.generateStream(listOf(system) + messages.toList()).collect { chunk ->
+                                        when (chunk) {
+                                            is RuntimeResult.Success -> {
+                                                assistantText += chunk.text
+                                                if (assistantIndex == -1) {
+                                                    assistantIndex = messages.size
+                                                    messages.add(ChatMessage("assistant", assistantText))
+                                                } else {
+                                                    messages[assistantIndex] = ChatMessage("assistant", assistantText)
+                                                }
+                                            }
+                                            is RuntimeResult.Error -> {
+                                                if (assistantIndex == -1) {
+                                                    status = chunk.message
+                                                } else {
+                                                    status = "Generation stopped with an error."
+                                                }
+                                            }
                                         }
-                                        is RuntimeResult.Error -> status = result.message
+                                    }
+
+                                    if (assistantText.isNotBlank()) {
+                                        conversationRepository.saveMessages(messages)
+                                        status = "Ready"
                                     }
                                     busy = false
                                 }
                             }
+                            generationJob = null
                         }
                     },
                     enabled = input.isNotBlank() && !busy
