@@ -47,6 +47,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
     var loreFacts by remember { mutableStateOf(repository.getLoreFacts()) }
     var secrets by remember { mutableStateOf(repository.getSecrets()) }
     var warnings by remember { mutableStateOf(repository.getWarnings(includeClosed = false)) }
+    var canonHistory by remember { mutableStateOf(repository.getCanonHistory()) }
     var subject by remember { mutableStateOf("") }
     var attribute by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
@@ -60,6 +61,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
         loreFacts = repository.getLoreFacts()
         secrets = repository.getSecrets()
         warnings = repository.getWarnings(includeClosed = false)
+        canonHistory = repository.getCanonHistory()
     }
 
     changeWarning?.let { warning ->
@@ -91,7 +93,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                         changeWarning = null
                         newCanonValue = ""
                         refresh()
-                        status = "Canon changed explicitly."
+                        status = "Canon changed explicitly and added to history."
                     }
                 }) { Text("Change") }
             },
@@ -197,14 +199,30 @@ fun ContinuityScreen(onBack: () -> Unit) {
                 }
             }
 
-            item {
-                Text("Review queue", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            if (canonHistory.isNotEmpty()) {
+                item {
+                    Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text("Canon change history", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Spacer(Modifier.height(5.dp))
+                            Text("Every intentional canon replacement keeps the previous value. Nothing is silently erased.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 18.sp)
+                            Spacer(Modifier.height(10.dp))
+                            canonHistory.take(20).forEach { change ->
+                                Column(Modifier.padding(vertical = 5.dp)) {
+                                    Text("${change.subject} • ${change.attribute}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("${change.oldValue} → ${change.newValue}", fontSize = 12.sp)
+                                    Text(change.displayTime(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
+            item { Text("Review queue", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+
             if (warnings.isEmpty()) {
-                item {
-                    Text("No open warnings.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                }
+                item { Text("No open warnings.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
             } else {
                 items(warnings, key = { it.id }) { warning ->
                     WarningCard(
@@ -255,6 +273,8 @@ private fun WarningCard(
                         TextButton(onClick = onChange) { Text("Change") }
                     }
                     WarningType.SECRET_LEAK -> {
+                        TextButton(onClick = onIgnore) { Text("Ignore") }
+                        TextButton(onClick = onEdit) { Text("Edit") }
                         TextButton(onClick = onKeepHidden) { Text("Keep hidden") }
                         TextButton(onClick = onReveal) { Text("Reveal") }
                     }
