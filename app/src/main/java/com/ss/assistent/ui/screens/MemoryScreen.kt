@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.memory.MemoryCategory
 import com.ss.assistent.memory.MemoryEntry
+import com.ss.assistent.memory.MemoryLock
 import com.ss.assistent.memory.MemoryRepository
 
 @Composable
@@ -47,6 +48,7 @@ fun MemoryScreen(onBack: () -> Unit) {
     var search by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<MemoryEntry?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var categoryToClear by remember { mutableStateOf<MemoryCategory?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
 
     val filteredEntries = remember(entries.toList(), search) {
@@ -63,13 +65,18 @@ fun MemoryScreen(onBack: () -> Unit) {
             entry = editing!!,
             onDismiss = { editing = null },
             onSave = { newCategory, newText ->
-                val updated = repository.update(editing!!.id, newCategory, newText)
+                val entry = editing!!
+                val updated = if (entry.lock == MemoryLock.SEALED) {
+                    repository.updateSealed(entry.id, newCategory, newText, explicitOverride = true)
+                } else {
+                    repository.update(entry.id, newCategory, newText)
+                }
                 if (updated == null) {
                     notice = "Nothing changed or an identical memory already exists."
                 } else {
                     val index = entries.indexOfFirst { it.id == updated.id }
                     if (index >= 0) entries[index] = updated
-                    notice = "Memory updated."
+                    notice = if (updated.lock == MemoryLock.SEALED) "Sealed memory updated exactly as entered." else "Memory updated."
                 }
                 editing = null
             }
@@ -93,6 +100,23 @@ fun MemoryScreen(onBack: () -> Unit) {
         )
     }
 
+    categoryToClear?.let { category ->
+        AlertDialog(
+            onDismissRequest = { categoryToClear = null },
+            title = { Text("Forget ${category.title.lowercase()}?") },
+            text = { Text("This removes all ${category.title.lowercase()} memories. Sealed memories are not protected from an explicit Forget action.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    repository.clearCategory(category)
+                    entries.removeAll { it.category == category }
+                    categoryToClear = null
+                    notice = "${category.title} memories forgotten."
+                }) { Text("Forget category") }
+            },
+            dismissButton = { TextButton(onClick = { categoryToClear = null }) { Text("Cancel") } }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 32.dp, bottom = 32.dp),
@@ -104,6 +128,23 @@ fun MemoryScreen(onBack: () -> Unit) {
                 Column(Modifier.padding(start = 12.dp)) {
                     Text("Memory", fontSize = 28.sp, fontWeight = FontWeight.Bold)
                     Text("Review and control what the assistant remembers.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                }
+            }
+        }
+
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Memory rules", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Normal memories may be cleaned up for storage. Sealed memories preserve the exact text you explicitly asked to save. A sealed memory is not shortened or normalized, and it only changes through an explicit replacement.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("${repository.count(MemoryLock.SEALED)} sealed • ${repository.count(MemoryLock.EDITABLE)} editable", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -144,6 +185,8 @@ fun MemoryScreen(onBack: () -> Unit) {
                             }
                         }, enabled = text.isNotBlank()) { Text("Save") }
                     }
+                    Spacer(Modifier.height(7.dp))
+                    Text("Exact/sealed capture will be available when the assistant recognizes an explicit request to preserve text exactly.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 16.sp)
                 }
             }
         }
@@ -167,10 +210,25 @@ fun MemoryScreen(onBack: () -> Unit) {
         }
 
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Stored memories (${filteredEntries.size})", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Stored memories (${filteredEntries.size})", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    if (entries.isNotEmpty()) {
+                        TextButton(onClick = { showClearDialog = true }) { Text("Forget all") }
+                    }
+                }
                 if (entries.isNotEmpty()) {
-                    TextButton(onClick = { showClearDialog = true }) { Text("Forget all") }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Forget by category", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        MemoryCategory.values().forEach { option ->
+                            TextButton(
+                                onClick = { categoryToClear = option },
+                                enabled = entries.any { it.category == option }
+                            ) { Text(option.title) }
+                        }
+                    }
                 }
             }
         }
@@ -205,7 +263,12 @@ private fun MemoryCard(entry: MemoryEntry, onEdit: () -> Unit, onDelete: () -> U
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth()) {
-                Text(entry.category.title, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text(entry.category.title, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    if (entry.lock == MemoryLock.SEALED) {
+                        Text("SEALED • exact text", color = MaterialTheme.colorScheme.tertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 TextButton(onClick = onEdit) { Text("Edit") }
                 TextButton(onClick = onDelete) { Text("Delete") }
             }
@@ -227,10 +290,19 @@ private fun MemoryEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit memory") },
+        title = { Text(if (entry.lock == MemoryLock.SEALED) "Edit sealed memory" else "Edit memory") },
         text = {
             Column {
-                OutlinedTextField(value = text, onValueChange = { text = it }, minLines = 2, maxLines = 5)
+                if (entry.lock == MemoryLock.SEALED) {
+                    Text(
+                        "This memory is sealed. Editing is an explicit replacement and the replacement will also be stored exactly as entered.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                    Spacer(Modifier.height(9.dp))
+                }
+                OutlinedTextField(value = text, onValueChange = { text = it }, minLines = 2, maxLines = 8)
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = { menuOpen = true }) { Text(category.title) }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -244,7 +316,7 @@ private fun MemoryEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(category, text) }, enabled = text.isNotBlank()) { Text("Save") }
+            TextButton(onClick = { onSave(category, text) }, enabled = text.isNotEmpty()) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
