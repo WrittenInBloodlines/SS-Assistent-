@@ -78,16 +78,16 @@ object MemoryRetriever {
         if (input.isEmpty()) return vector
 
         input.forEach { word ->
-            addHashedFeature(vector, "w:$word", 1f)
+            addHashedFeature(vector, "w:" + word, 1f)
             if (word.length >= 3) {
-                val padded = "_$word_"
+                val padded = "_" + word + "_"
                 val lastStart = padded.length - 3
                 for (start in 0..lastStart) {
-                    addHashedFeature(vector, "c:${padded.substring(start, start + 3)}", 0.35f)
+                    addHashedFeature(vector, "c:" + padded.substring(start, start + 3), 0.35f)
                 }
             }
             SYNONYM_GROUPS.firstOrNull { word in it }?.forEach { synonym ->
-                addHashedFeature(vector, "s:$synonym", 0.25f)
+                addHashedFeature(vector, "s:" + synonym, 0.25f)
             }
         }
 
