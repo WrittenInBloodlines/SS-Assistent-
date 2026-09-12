@@ -22,9 +22,7 @@ object ContinuityAnalyzer {
         val lower = draft.lowercase()
         return facts.mapNotNull { fact ->
             val subjectPresent = lower.contains(fact.subject.lowercase())
-            val attributePresent = attributeAliases(fact.attribute).any { alias ->
-                alias.all { lower.contains(it) }
-            }
+            val attributePresent = attributeAliases(fact.attribute).any { alias -> alias.all { lower.contains(it) } }
             if (!subjectPresent || !attributePresent) return@mapNotNull null
 
             val sentences = draft.split(Regex("(?<=[.!?])\\s+|\\n+"))
@@ -71,7 +69,7 @@ object ContinuityAnalyzer {
         if (hasPattern != null) return hasPattern
 
         if (attributeAliases(fact.attribute).any { alias -> alias.all { lower.contains(it) } }) {
-            val color = listOf("blue", "green", "brown", "dark brown", "light brown", "gray", "grey", "hazel", "black", "white", "red").firstOrNull { lower.contains(it) }
+            val color = listOf("dark brown", "light brown", "blue", "green", "brown", "gray", "grey", "hazel", "black", "white", "red").firstOrNull { lower.contains(it) }
             if (color != null) return color
         }
         return null
