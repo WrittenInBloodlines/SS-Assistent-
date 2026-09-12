@@ -50,7 +50,7 @@ fun AssistantScreen(onBack: () -> Unit) {
     val conversationRepository = remember { ConversationRepository(context) }
     val memoryRepository = remember { MemoryRepository(context) }
     val preferences = remember { AssistantPreferences(context) }
-    val runtime = remember { LlamaAssistantRuntime() }
+    val runtime = remember { LlamaAssistantRuntime(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val messages = remember { mutableStateListOf<ChatMessage>().apply { addAll(conversationRepository.loadMessages()) } }
     var input by remember { mutableStateOf("") }
@@ -161,7 +161,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                         conversationRepository.saveMessages(messages)
                         input = ""
                         busy = true
-                        status = "Preparing local inference..."
+                        status = "Checking model..."
 
                         scope.launch {
                             when (val loadResult = runtime.load(model)) {
