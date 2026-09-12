@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelRepository
+import com.ss.assistent.ui.screens.ActionsScreen
 import com.ss.assistent.ui.screens.AssistantScreen
 import com.ss.assistent.ui.screens.ContinuityScreen
 import com.ss.assistent.ui.screens.ConversationToolsScreen
@@ -49,18 +50,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            SSAssistentTheme { SSAssistentApp() }
-        }
+        setContent { SSAssistentTheme { SSAssistentApp() } }
     }
 }
 
-private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Settings }
+private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Actions, Settings }
 
 @Composable
 private fun SSAssistentApp() {
     var screen by remember { mutableStateOf(AppScreen.Home) }
-
     when (screen) {
         AppScreen.Home -> HomeScreen(
             onModels = { screen = AppScreen.Models },
@@ -68,6 +66,7 @@ private fun SSAssistentApp() {
             onConversation = { screen = AppScreen.Conversation },
             onMemory = { screen = AppScreen.Memory },
             onContinuity = { screen = AppScreen.Continuity },
+            onActions = { screen = AppScreen.Actions },
             onSettings = { screen = AppScreen.Settings }
         )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
@@ -75,6 +74,7 @@ private fun SSAssistentApp() {
         AppScreen.Conversation -> ConversationToolsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Memory -> MemoryScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Continuity -> ContinuityScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.Actions -> ActionsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Settings -> SettingsScreen(onBack = { screen = AppScreen.Home })
     }
 }
@@ -86,13 +86,13 @@ private fun HomeScreen(
     onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
+    onActions: () -> Unit,
     onSettings: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val models = remember { ModelRepository(context).getModels() }
     val modelCount = models.size
     val activeModel = models.firstOrNull { it.isActive }
-
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -101,7 +101,7 @@ private fun HomeScreen(
         ) {
             item { Header() }
             item { ModelCard(activeModel?.name, modelCount, onModels) }
-            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onSettings) }
+            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onActions, onSettings) }
             item { ActivityCard() }
             item { PermissionCard() }
         }
@@ -121,32 +121,16 @@ private fun Header() {
 
 @Composable
 private fun ModelCard(modelName: String?, modelCount: Int, onOpenModels: () -> Unit) {
-    Card(
-        modifier = Modifier.clickable(onClick = onOpenModels),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
+    Card(modifier = Modifier.clickable(onClick = onOpenModels), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
-                ) { Text("AI", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
+                Box(modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Text("AI", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
                     Text(modelName ?: "No model connected", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text(
-                        if (modelName != null) "Active local model" else if (modelCount > 0) "$modelCount local model${if (modelCount == 1) "" else "s"} available" else "Add a local model",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
+                    Text(if (modelName != null) "Active local model" else if (modelCount > 0) "$modelCount local model${if (modelCount == 1) "" else "s"} available" else "Add a local model", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 }
-                Box(
-                    modifier = Modifier.size(9.dp).background(
-                        if (modelName != null) MaterialTheme.colorScheme.primary else Color(0xFF8A8495),
-                        RoundedCornerShape(50)
-                    )
-                )
+                Box(modifier = Modifier.size(9.dp).background(if (modelName != null) MaterialTheme.colorScheme.primary else Color(0xFF8A8495), RoundedCornerShape(50)))
             }
             Spacer(Modifier.height(17.dp))
             Text("Models are stored separately on your device and are never bundled into the APK.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
@@ -161,6 +145,7 @@ private fun QuickActions(
     onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
+    onActions: () -> Unit,
     onSettings: () -> Unit
 ) {
     Column {
@@ -178,7 +163,12 @@ private fun QuickActions(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("▤", "Conversation", Modifier.weight(1f), onConversation)
+            ActionCard("⚡", "Actions", Modifier.weight(1f), onActions)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("⚙", "Settings", Modifier.weight(1f), onSettings)
+            Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -200,9 +190,9 @@ private fun ActivityCard() {
         Column(Modifier.padding(20.dp)) {
             SectionTitle("Recent activity")
             Spacer(Modifier.height(14.dp))
-            Text("No actions yet", fontWeight = FontWeight.SemiBold)
+            Text("Action history is now available", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Text("When your assistant later opens apps, prepares text, or performs other tasks, they will appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+            Text("Open Actions to plan capabilities, review confirmation boundaries, and inspect the local action history.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
@@ -213,7 +203,7 @@ private fun PermissionCard() {
         Column(Modifier.padding(20.dp)) {
             Text("You stay in control", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(Modifier.height(7.dp))
-            Text("Sending, deleting, and other important actions will require your confirmation later.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+            Text("Actions are planned separately from the model. Capability switches are off by default, and important actions will require explicit confirmation.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
