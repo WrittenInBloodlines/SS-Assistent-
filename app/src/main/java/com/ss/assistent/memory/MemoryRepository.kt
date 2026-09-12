@@ -36,6 +36,7 @@ enum class MemoryCategory(val key: String, val title: String) {
 /** Explicit user-controlled memories. Nothing is added automatically. */
 class MemoryRepository(context: Context) {
     private val preferences = context.getSharedPreferences("assistant_memory", Context.MODE_PRIVATE)
+    private val historyRepository = MemoryHistoryRepository(context)
 
     fun getAll(): List<MemoryEntry> {
         val raw = preferences.getString(KEY_ENTRIES, null) ?: return emptyList()
@@ -100,6 +101,7 @@ class MemoryRepository(context: Context) {
     /**
      * Updates a sealed memory only through an explicit replacement operation.
      * No normalization is applied, so the replacement becomes the new exact sealed value.
+     * The previous exact value is recorded before replacement.
      */
     fun updateSealed(
         id: String,
@@ -110,6 +112,7 @@ class MemoryRepository(context: Context) {
         if (!explicitOverride || exactReplacement.isEmpty() || exactReplacement.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
         val existing = getAll().firstOrNull { it.id == id } ?: return null
         if (existing.lock != MemoryLock.SEALED) return null
+        if (existing.category == category && existing.text == exactReplacement) return existing
         if (getAll().any {
                 it.id != id &&
                     it.category == category &&
@@ -117,18 +120,34 @@ class MemoryRepository(context: Context) {
             }) {
             return null
         }
+
+        historyRepository.append(
+            MemoryVersion(
+                memoryId = existing.id,
+                category = existing.category,
+                text = existing.text,
+                savedAt = System.currentTimeMillis(),
+                reason = "Before explicit sealed replacement"
+            )
+        )
+
         return replaceEntry(
             id,
             MemoryEntry(id = id, category = category, text = exactReplacement, lock = MemoryLock.SEALED)
         )
     }
 
+    fun getHistory(id: String): List<MemoryVersion> = historyRepository.getForMemory(id)
+
     fun delete(id: String) {
         save(getAll().filterNot { it.id == id })
+        historyRepository.clearMemory(id)
     }
 
     fun clearCategory(category: MemoryCategory) {
+        val removedIds = getAll().filter { it.category == category }.map { it.id }
         save(getAll().filterNot { it.category == category })
+        removedIds.forEach(historyRepository::clearMemory)
     }
 
     fun count(category: MemoryCategory? = null): Int =
@@ -138,6 +157,7 @@ class MemoryRepository(context: Context) {
 
     fun clear() {
         preferences.edit().remove(KEY_ENTRIES).apply()
+        historyRepository.clearAll()
     }
 
     private fun addInternal(category: MemoryCategory, text: String, lock: MemoryLock): MemoryEntry? {
