@@ -18,7 +18,7 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add clearer GGUF model diagnostics in the Models screen
 - [ ] Build and run on a real arm64 Android device
 - [ ] Validate `Qwen3-4B-Q4_K_M.gguf` on the target phone
-- [ ] Add robust runtime error recovery and model unload/reload handling
+- [x] Add runtime error recovery and safe model unload/reload handling
 
 ## Phase 2 — Assistant personality and conversation quality
 
@@ -42,7 +42,10 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Memory controls and a clear delete action
 - [x] Add deterministic relevance scoring / retrieval for saved memories
 - [x] Add memory-aware prompt assembly with a strict local character budget
-- [ ] Add memory editing
+- [x] Add memory editing
+- [x] Add memory search/filtering
+- [x] Add duplicate protection for saved memories
+- [x] Add a clear "Forget all" workflow
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
 - [ ] Add a clear "Forget" workflow for individual memories and categories
 - [ ] Add local encrypted storage where appropriate
