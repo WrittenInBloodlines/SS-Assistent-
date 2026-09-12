@@ -60,8 +60,8 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Prioritize sealed memory during retrieval and label it as exact/sealed in the model prompt
 - [x] Enforce the exact-memory size limit at the storage layer
 - [x] Provide a sealed-memory replacement primitive that requires an explicit override and preserves the replacement exactly
+- [x] Add a local sealed-memory version/history trail and review UI
 - [ ] If a user explicitly requests a change to a sealed memory, apply only the requested change and preserve every other character/content exactly
-- [ ] Add a dedicated memory version/history trail so exact replacements can be reviewed safely
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
 - [ ] Add local encrypted storage where appropriate
 - [ ] Add stronger semantic memory retrieval when the local architecture supports it
