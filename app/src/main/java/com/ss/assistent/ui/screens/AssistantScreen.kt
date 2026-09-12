@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,7 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.assistant.ChatMessage
-import com.ss.assistent.assistant.LocalAssistantRuntime
+import com.ss.assistent.assistant.LlamaAssistantRuntime
 import com.ss.assistent.assistant.RuntimeResult
 import com.ss.assistent.model.ModelRepository
 import kotlinx.coroutines.launch
@@ -41,7 +42,7 @@ import kotlinx.coroutines.launch
 fun AssistantScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val repository = remember { ModelRepository(context) }
-    val runtime = remember { LocalAssistantRuntime() }
+    val runtime = remember { LlamaAssistantRuntime() }
     val scope = rememberCoroutineScope()
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
@@ -49,6 +50,10 @@ fun AssistantScreen(onBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
 
     val activeModel = remember { repository.getModels().firstOrNull { it.isActive } }
+
+    DisposableEffect(Unit) {
+        onDispose { runtime.unload() }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(top = 28.dp)
@@ -78,7 +83,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                     Text("Local assistant", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Your conversations will stay on the device when a local GGUF runtime is connected.",
+                        "Your conversations stay on the device when you use an imported local GGUF model.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         lineHeight = 19.sp
@@ -138,8 +143,12 @@ fun AssistantScreen(onBack: () -> Unit) {
                                     busy = false
                                 }
                                 is RuntimeResult.Success -> {
+                                    status = "Generating locally..."
                                     when (val result = runtime.generate(messages.toList())) {
-                                        is RuntimeResult.Success -> messages.add(ChatMessage("assistant", result.text))
+                                        is RuntimeResult.Success -> {
+                                            messages.add(ChatMessage("assistant", result.text))
+                                            status = "Ready"
+                                        }
                                         is RuntimeResult.Error -> status = result.message
                                     }
                                     busy = false
