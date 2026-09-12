@@ -31,8 +31,8 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add a clear-conversation action
 - [x] Bound short-term conversation context before local generation
 - [x] Add generation controls for maximum response length, temperature, Top-K and Top-P
-- [ ] Add conversation rename and export UI
-- [ ] Wire advanced per-conversation generation profiles into the chat UI
+- [x] Add conversation rename and export UI
+- [x] Wire advanced per-conversation generation profiles into the chat UI
 
 ## Phase 3 — Real memory
 
