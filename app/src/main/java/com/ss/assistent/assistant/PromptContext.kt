@@ -1,6 +1,7 @@
 package com.ss.assistent.assistant
 
 import com.ss.assistent.memory.MemoryEntry
+import com.ss.assistent.memory.MemoryLock
 import java.util.Locale
 
 /**
@@ -18,26 +19,33 @@ object PromptContext {
         if (memories.isEmpty()) return emptyList()
 
         val queryTerms = terms(query)
-        if (queryTerms.isEmpty()) return memories.take(MAX_MEMORY_ENTRIES)
+        val sealed = memories.filter { it.lock == MemoryLock.SEALED }
+        val editable = memories.filter { it.lock != MemoryLock.SEALED }
 
-        return memories
-            .map { memory -> memory to score(memory, queryTerms) }
-            .filter { (_, score) -> score > 0 }
-            .sortedWith(
-                compareByDescending<Pair<MemoryEntry, Int>> { it.second }
-                    .thenBy { it.first.id }
-            )
-            .map { it.first }
-            .take(MAX_MEMORY_ENTRIES)
-            .let { selected ->
-                var used = 0
-                selected.filter { memory ->
-                    val cost = memory.text.length + memory.category.title.length + 5
-                    if (used + cost > MAX_MEMORY_CHARS) return@filter false
-                    used += cost
-                    true
-                }
-            }
+        // Sealed memories represent text the user explicitly asked us to preserve.
+        // They are always considered before ordinary relevance scoring so a sealed
+        // instruction is not silently displaced by a more topical editable memory.
+        val rankedEditable = if (queryTerms.isEmpty()) {
+            editable
+        } else {
+            editable
+                .map { memory -> memory to score(memory, queryTerms) }
+                .filter { (_, score) -> score > 0 }
+                .sortedWith(
+                    compareByDescending<Pair<MemoryEntry, Int>> { it.second }
+                        .thenBy { it.first.id }
+                )
+                .map { it.first }
+        }
+
+        val ordered = (sealed + rankedEditable).distinctBy { it.id }
+        var used = 0
+        return ordered.take(MAX_MEMORY_ENTRIES).filter { memory ->
+            val cost = memory.text.length + memory.category.title.length + 5
+            if (used + cost > MAX_MEMORY_CHARS) return@filter false
+            used += cost
+            true
+        }
     }
 
     fun recentConversation(messages: List<ChatMessage>): List<ChatMessage> {
@@ -64,7 +72,10 @@ object PromptContext {
         val memoryText = if (relevant.isEmpty()) {
             "No relevant saved memories are available."
         } else {
-            relevant.joinToString("\n") { "- ${it.category.title}: ${it.text}" }
+            relevant.joinToString("\n") {
+                val lockLabel = if (it.lock == MemoryLock.SEALED) " [SEALED EXACT]" else ""
+                "- ${it.category.title}$lockLabel: ${it.text}"
+            }
         }
 
         return buildString {
@@ -75,6 +86,7 @@ object PromptContext {
             append("Relevant user-approved memories:\n")
             append(memoryText)
             append("\n")
+            append("[SEALED EXACT] memories are user-preserved text. Do not rewrite, normalize, shorten, or reinterpret their wording when referring to them.\n")
             append("Never claim to have performed a device action unless the app actually reports that action as completed.")
         }
     }
