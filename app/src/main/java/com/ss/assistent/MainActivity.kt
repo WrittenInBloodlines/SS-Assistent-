@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelRepository
+import com.ss.assistent.ui.screens.AssistantScreen
 import com.ss.assistent.ui.screens.ModelsScreen
 import com.ss.assistent.ui.theme.SSAssistentTheme
 
@@ -52,23 +53,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppScreen { Home, Models }
+private enum class AppScreen { Home, Models, Assistant }
 
 @Composable
 private fun SSAssistentApp() {
     var screen by remember { mutableStateOf(AppScreen.Home) }
 
     when (screen) {
-        AppScreen.Home -> HomeScreen(onModels = { screen = AppScreen.Models })
+        AppScreen.Home -> HomeScreen(
+            onModels = { screen = AppScreen.Models },
+            onAssistant = { screen = AppScreen.Assistant }
+        )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.Assistant -> AssistantScreen(onBack = { screen = AppScreen.Home })
     }
 }
 
 @Composable
-private fun HomeScreen(onModels: () -> Unit) {
+private fun HomeScreen(onModels: () -> Unit, onAssistant: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val modelCount = remember { ModelRepository(context).getModels().size }
-    val activeModel = remember { ModelRepository(context).getModels().firstOrNull { it.isActive } }
+    val models = remember { ModelRepository(context).getModels() }
+    val modelCount = models.size
+    val activeModel = models.firstOrNull { it.isActive }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -87,7 +93,7 @@ private fun HomeScreen(onModels: () -> Unit) {
                     onOpenModels = onModels
                 )
             }
-            item { QuickActions(onModels = onModels) }
+            item { QuickActions(onModels = onModels, onAssistant = onAssistant) }
             item { ActivityCard() }
             item { PermissionCard() }
         }
@@ -146,12 +152,12 @@ private fun ModelCard(modelName: String?, modelCount: Int, onOpenModels: () -> U
 }
 
 @Composable
-private fun QuickActions(onModels: () -> Unit) {
+private fun QuickActions(onModels: () -> Unit, onAssistant: () -> Unit) {
     Column {
         SectionTitle("Quick access")
         Spacer(Modifier.height(9.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ActionCard("✦", "Assistant", Modifier.weight(1f))
+            ActionCard("✦", "Assistant", Modifier.weight(1f), onClick = onAssistant)
             ActionCard("▣", "Models", Modifier.weight(1f), onClick = onModels)
         }
         Spacer(Modifier.height(10.dp))
