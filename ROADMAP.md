@@ -87,7 +87,8 @@ This is designed primarily for story/character work. The assistant should not tr
 - [x] Suggested fixes are optional and are never inserted automatically
 - [x] Example: if a character is described as being in a car, then later walks into the kitchen without the story establishing that they returned home, flag the missing transition and suggest ways to resolve it
 - [x] Keep plot-hole detection separate from the actual story text so the user remains in control
-- [ ] Expand plot-hole detection to broader timelines, scene transitions and character locations
+- [x] Expand location-transition detection beyond the initial car → kitchen pattern
+- [ ] Expand plot-hole detection to broader timelines and character movement across scene boundaries
 
 ### Secret / hidden-information system
 
@@ -98,6 +99,7 @@ This is designed primarily for story/character work. The assistant should not tr
 - [x] Add a review warning when a generated/draft sentence appears to reveal hidden information
 - [x] Offer `Keep hidden` and `Reveal` controls for the implemented secret-leak warning
 - [x] Add `Edit` and `Ignore` controls to the secret-leak review
+- [x] Make secret `Edit` open a real structured editor for the stored secret and its known-by list
 - [ ] Add per-character discovery timing and explicit narration/reveal permissions
 - [x] Never reveal a secret merely because it exists in the assistant's story data
 
@@ -113,6 +115,7 @@ This is designed primarily for story/character work. The assistant should not tr
 - [x] `Change` requires an explicit new canon value before changing the stored fact
 - [x] Suggested resolutions remain suggestions and require user confirmation
 - [x] Track intentional canon changes with local version/history metadata so old facts can be audited safely
+- [x] Link lore warnings to their exact canon fact ID instead of reverse-matching warning text
 - [ ] Expand contradiction parsing beyond the initial explicit attribute/value patterns
 
 ## Phase 4 — Device actions and app integrations
