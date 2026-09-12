@@ -43,35 +43,59 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path("libs/llama.kt/llama-kt/src/main/cpp/CMakeLists.txt")
           text = path.read_text()
 
-          removals = [
-              '    # Vulkan backend + SPIR-V shaders\n'
-              '    ${GGML_VULKAN_SOURCES}\n'
-              '    ${GGML_VULKAN_SHADER_SOURCES}\n',
-              '    # Vulkan backend (Mali-G68 + any Vulkan 1.1+ GPU)\n'
-              '    -DLM_GGML_USE_VULKAN\n',
-              '    # Vulkan — Android system library (present on API 24+, always available on Mali devices)\n'
-              '    ${VULKAN_LIB}\n',
-              '    # OpenCL backend\n'
-              '    ${GGML_OPENCL_SOURCES}\n',
-              '    # OpenCL backend\n'
-              '    -DLM_GGML_USE_OPENCL\n',
-              '    # OpenCL — Android system library\n'
-              '    -lOpenCL\n',
-              '    ${OPENCL_LIB}\n',
-          ]
+          # Remove individual OpenCL/Vulkan source, compile-definition and link entries.
+          kept = []
+          for line in text.splitlines(keepends=True):
+              normalized = line.lower()
+              if any(token in normalized for token in (
+                  "ggml-opencl",
+                  "ggml_opencl",
+                  "ggml-opencl-sources",
+                  "ggml_opencl_sources",
+                  "opencl_lib",
+                  "-lopencl",
+                  "lm_ggml_use_opencl",
+                  "ggml-vulkan",
+                  "ggml_vulkan",
+                  "vulkan_lib",
+                  "lm_ggml_use_vulkan",
+              )):
+                  continue
+              kept.append(line)
 
-          for block in removals:
-              text = text.replace(block, '')
+          path.write_text("".join(kept))
 
-          text = text.replace('    ggml-opencl/ggml-opencl.cpp\n', '')
-          text = text.replace('    ${GGML_OPENCL_SOURCES}\n', '')
-          text = text.replace('    ${OPENCL_LIB}\n', '')
-          text = text.replace('    -lOpenCL\n', '')
-          text = text.replace('    OpenCL\n', '')
-          path.write_text(text)
+          # Also remove backend source references from any nearby CMake file that may
+          # be included by the pinned upstream project.
+          cpp_root = path.parent
+          for cmake in cpp_root.rglob("CMakeLists.txt"):
+              if cmake == path:
+                  continue
+              original = cmake.read_text()
+              filtered = []
+              for line in original.splitlines(keepends=True):
+                  normalized = line.lower()
+                  if any(token in normalized for token in (
+                      "ggml-opencl",
+                      "ggml_opencl",
+                      "ggml-vulkan",
+                      "ggml_vulkan",
+                      "opencl_lib",
+                      "-lopencl",
+                      "lm_ggml_use_opencl",
+                      "vulkan_lib",
+                      "lm_ggml_use_vulkan",
+                  )):
+                      continue
+                  filtered.append(line)
+              updated = "".join(filtered)
+              if updated != original:
+                  cmake.write_text(updated)
           PY
 
       - name: Verify Gradle and Java versions
