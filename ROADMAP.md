@@ -97,8 +97,8 @@ This is designed primarily for story/character work. The assistant should not tr
 - [x] Preserve uncertainty by warning when a draft appears to reveal a stored secret
 - [x] Add a review warning when a generated/draft sentence appears to reveal hidden information
 - [x] Offer `Keep hidden` and `Reveal` controls for the implemented secret-leak warning
+- [x] Add `Edit` and `Ignore` controls to the secret-leak review
 - [ ] Add per-character discovery timing and explicit narration/reveal permissions
-- [ ] Add `Edit` and `Ignore` controls to the secret-leak review
 - [x] Never reveal a secret merely because it exists in the assistant's story data
 
 ### Lore contradiction detection
@@ -112,7 +112,7 @@ This is designed primarily for story/character work. The assistant should not tr
 - [x] `Ignore` keeps the established canon and does not modify the new draft automatically
 - [x] `Change` requires an explicit new canon value before changing the stored fact
 - [x] Suggested resolutions remain suggestions and require user confirmation
-- [ ] Track intentional canon changes with version/history metadata so old facts can be audited safely
+- [x] Track intentional canon changes with local version/history metadata so old facts can be audited safely
 - [ ] Expand contradiction parsing beyond the initial explicit attribute/value patterns
 
 ## Phase 4 — Device actions and app integrations
