@@ -9,7 +9,7 @@ enum class MemoryLock {
     /** Normal memories may be edited by the user. */
     EDITABLE,
 
-    /** Exact user-provided text is preserved byte-for-byte until the user explicitly changes it. */
+    /** Exact user-provided text is preserved until the user explicitly changes it. */
     SEALED
 }
 
@@ -60,9 +60,11 @@ class MemoryRepository(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    /** Adds a normal memory after applying the normal length/whitespace cleanup. */
-    fun add(category: MemoryCategory, text: String): MemoryEntry? =
-        addInternal(category, normalize(text) ?: return null, MemoryLock.EDITABLE)
+    /** Adds a normal memory after applying normal length and whitespace cleanup. */
+    fun add(category: MemoryCategory, text: String): MemoryEntry? {
+        val cleanText = normalize(text) ?: return null
+        return addInternal(category, cleanText, MemoryLock.EDITABLE)
+    }
 
     /**
      * Adds an exact memory. The supplied text is intentionally not trimmed, collapsed,
@@ -70,8 +72,7 @@ class MemoryRepository(context: Context) {
      * "save this exactly as written" request.
      */
     fun addExact(category: MemoryCategory, exactText: String): MemoryEntry? {
-        if (exactText.isEmpty()) return null
-        if (exactText.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
+        if (exactText.isEmpty() || exactText.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
         return addInternal(category, exactText, MemoryLock.SEALED)
     }
 
@@ -90,7 +91,10 @@ class MemoryRepository(context: Context) {
             return null
         }
 
-        return replaceEntry(id, MemoryEntry(id = id, category = category, text = cleanText, lock = MemoryLock.EDITABLE))
+        return replaceEntry(
+            id,
+            MemoryEntry(id = id, category = category, text = cleanText, lock = MemoryLock.EDITABLE)
+        )
     }
 
     /**
