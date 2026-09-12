@@ -1,6 +1,7 @@
 package com.ss.assistent.assistant
 
 import com.ss.assistent.model.ModelInfo
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Runtime boundary for local language-model inference.
@@ -15,6 +16,17 @@ interface AssistantRuntime {
         messages: List<ChatMessage>,
         maxTokens: Int = 256
     ): RuntimeResult
+
+    /**
+     * Streams generated text as it becomes available.
+     * Implementations may emit one final chunk when streaming is unavailable.
+     */
+    fun generateStream(
+        messages: List<ChatMessage>,
+        maxTokens: Int = 256
+    ): Flow<RuntimeResult>
+
+    /** Interrupts an active generation and releases the native model. */
     fun unload()
     fun isLoaded(): Boolean
 }
