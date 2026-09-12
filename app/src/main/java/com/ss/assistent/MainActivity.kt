@@ -26,12 +26,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ss.assistent.model.ModelRepository
+import com.ss.assistent.ui.screens.ModelsScreen
 import com.ss.assistent.ui.theme.SSAssistentTheme
 
 class MainActivity : ComponentActivity() {
@@ -46,8 +52,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class AppScreen { Home, Models }
+
 @Composable
 private fun SSAssistentApp() {
+    var screen by remember { mutableStateOf(AppScreen.Home) }
+
+    when (screen) {
+        AppScreen.Home -> HomeScreen(onModels = { screen = AppScreen.Models })
+        AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
+    }
+}
+
+@Composable
+private fun HomeScreen(onModels: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val modelCount = remember { ModelRepository(context).getModels().size }
+    val activeModel = remember { ModelRepository(context).getModels().firstOrNull { it.isActive } }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -58,8 +80,14 @@ private fun SSAssistentApp() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { Header() }
-            item { ModelCard() }
-            item { QuickActions() }
+            item {
+                ModelCard(
+                    modelName = activeModel?.name,
+                    modelCount = modelCount,
+                    onOpenModels = onModels
+                )
+            }
+            item { QuickActions(onModels = onModels) }
             item { ActivityCard() }
             item { PermissionCard() }
         }
@@ -69,59 +97,46 @@ private fun SSAssistentApp() {
 @Composable
 private fun Header() {
     Column {
-        Text(
-            text = "SS",
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 3.sp
-        )
+        Text("SS", color = MaterialTheme.colorScheme.primary, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
         Spacer(Modifier.height(5.dp))
-        Text(
-            text = "Assistant",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Text("Assistant", color = MaterialTheme.colorScheme.onBackground, fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(5.dp))
-        Text(
-            text = "Your personal assistant for your device.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 15.sp
-        )
+        Text("Your personal assistant for your device.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
     }
 }
 
 @Composable
-private fun ModelCard() {
+private fun ModelCard(modelName: String?, modelCount: Int, onOpenModels: () -> Unit) {
     Card(
+        modifier = Modifier.clickable(onClick = onOpenModels),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(14.dp)),
+                    modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center
-                ) {
-                    Text("AI", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
+                ) { Text("AI", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("No model connected", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text("Add a local model later", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    Text(modelName ?: "No model connected", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(
+                        if (modelName != null) "Active local model" else if (modelCount > 0) "$modelCount local model${if (modelCount == 1) "" else "s"} available" else "Add a local model",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
                 }
                 Box(
-                    modifier = Modifier
-                        .size(9.dp)
-                        .background(Color(0xFF8A8495), RoundedCornerShape(50))
+                    modifier = Modifier.size(9.dp).background(
+                        if (modelName != null) MaterialTheme.colorScheme.primary else Color(0xFF8A8495),
+                        RoundedCornerShape(50)
+                    )
                 )
             }
             Spacer(Modifier.height(17.dp))
             Text(
-                text = "The app stays small. Models are stored separately on your device.",
+                "Models are stored separately on your device and are never bundled into the APK.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 19.sp
@@ -131,13 +146,13 @@ private fun ModelCard() {
 }
 
 @Composable
-private fun QuickActions() {
+private fun QuickActions(onModels: () -> Unit) {
     Column {
         SectionTitle("Quick access")
         Spacer(Modifier.height(9.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("✦", "Assistant", Modifier.weight(1f))
-            ActionCard("▣", "Models", Modifier.weight(1f))
+            ActionCard("▣", "Models", Modifier.weight(1f), onClick = onModels)
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -148,9 +163,9 @@ private fun QuickActions() {
 }
 
 @Composable
-private fun ActionCard(icon: String, title: String, modifier: Modifier) {
+private fun ActionCard(icon: String, title: String, modifier: Modifier, onClick: () -> Unit = {}) {
     Card(
-        modifier = modifier.clickable { },
+        modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -164,40 +179,24 @@ private fun ActionCard(icon: String, title: String, modifier: Modifier) {
 
 @Composable
 private fun ActivityCard() {
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
+    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(20.dp)) {
             SectionTitle("Recent activity")
             Spacer(Modifier.height(14.dp))
             Text("No actions yet", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Text(
-                "When your assistant later opens apps, prepares text, or performs other tasks, they will appear here.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                lineHeight = 19.sp
-            )
+            Text("When your assistant later opens apps, prepares text, or performs other tasks, they will appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
 
 @Composable
 private fun PermissionCard() {
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-    ) {
+    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))) {
         Column(Modifier.padding(20.dp)) {
             Text("You stay in control", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(Modifier.height(7.dp))
-            Text(
-                "Sending, deleting, and other important actions will require your confirmation later.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                lineHeight = 19.sp
-            )
+            Text("Sending, deleting, and other important actions will require your confirmation later.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
