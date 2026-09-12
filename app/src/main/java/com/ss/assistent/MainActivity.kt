@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.ui.screens.AssistantScreen
 import com.ss.assistent.ui.screens.ContinuityScreen
+import com.ss.assistent.ui.screens.ConversationToolsScreen
 import com.ss.assistent.ui.screens.MemoryScreen
 import com.ss.assistent.ui.screens.ModelsScreen
 import com.ss.assistent.ui.screens.SettingsScreen
@@ -54,7 +55,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppScreen { Home, Models, Assistant, Memory, Continuity, Settings }
+private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Settings }
 
 @Composable
 private fun SSAssistentApp() {
@@ -64,12 +65,14 @@ private fun SSAssistentApp() {
         AppScreen.Home -> HomeScreen(
             onModels = { screen = AppScreen.Models },
             onAssistant = { screen = AppScreen.Assistant },
+            onConversation = { screen = AppScreen.Conversation },
             onMemory = { screen = AppScreen.Memory },
             onContinuity = { screen = AppScreen.Continuity },
             onSettings = { screen = AppScreen.Settings }
         )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Assistant -> AssistantScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.Conversation -> ConversationToolsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Memory -> MemoryScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Continuity -> ContinuityScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Settings -> SettingsScreen(onBack = { screen = AppScreen.Home })
@@ -80,6 +83,7 @@ private fun SSAssistentApp() {
 private fun HomeScreen(
     onModels: () -> Unit,
     onAssistant: () -> Unit,
+    onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
     onSettings: () -> Unit
@@ -97,7 +101,7 @@ private fun HomeScreen(
         ) {
             item { Header() }
             item { ModelCard(activeModel?.name, modelCount, onModels) }
-            item { QuickActions(onModels, onAssistant, onMemory, onContinuity, onSettings) }
+            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onSettings) }
             item { ActivityCard() }
             item { PermissionCard() }
         }
@@ -154,6 +158,7 @@ private fun ModelCard(modelName: String?, modelCount: Int, onOpenModels: () -> U
 private fun QuickActions(
     onModels: () -> Unit,
     onAssistant: () -> Unit,
+    onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
     onSettings: () -> Unit
@@ -171,7 +176,10 @@ private fun QuickActions(
             ActionCard("◈", "Story", Modifier.weight(1f), onContinuity)
         }
         Spacer(Modifier.height(10.dp))
-        ActionCard("⚙", "Settings", Modifier.fillMaxWidth(), onSettings)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionCard("▤", "Conversation", Modifier.weight(1f), onConversation)
+            ActionCard("⚙", "Settings", Modifier.weight(1f), onSettings)
+        }
     }
 }
 
