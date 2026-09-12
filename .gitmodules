@@ -1,0 +1,4 @@
+[submodule "libs/llama.kt"]
+	path = libs/llama.kt
+	url = https://github.com/hokanosekai/llama.kt.git
+	branch = main
