@@ -1,32 +1,24 @@
 package com.ss.assistent.assistant
 
 import com.ss.assistent.model.ModelInfo
+import com.ss.assistent.settings.GenerationSettings
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Runtime boundary for local language-model inference.
- *
- * The Android UI talks to this interface instead of depending on a native engine.
- * This keeps the app modular so a GGUF runtime can be swapped in later without
- * rebuilding the assistant UI or device-action layer.
- */
+/** Runtime boundary for local language-model inference. */
 interface AssistantRuntime {
     suspend fun load(model: ModelInfo): RuntimeResult
+
     suspend fun generate(
         messages: List<ChatMessage>,
-        maxTokens: Int = 256
+        settings: GenerationSettings = GenerationSettings.DEFAULT
     ): RuntimeResult
 
-    /**
-     * Streams generated text as it becomes available.
-     * Implementations may emit one final chunk when streaming is unavailable.
-     */
+    /** Streams generated text as it becomes available. */
     fun generateStream(
         messages: List<ChatMessage>,
-        maxTokens: Int = 256
+        settings: GenerationSettings = GenerationSettings.DEFAULT
     ): Flow<RuntimeResult>
 
-    /** Interrupts an active generation and releases the native model. */
     fun unload()
     fun isLoaded(): Boolean
 }
