@@ -88,13 +88,20 @@ class MemoryRepository(context: Context) {
         save(getAll().filterNot { it.id == id })
     }
 
+    fun clearCategory(category: MemoryCategory) {
+        save(getAll().filterNot { it.category == category })
+    }
+
+    fun count(category: MemoryCategory? = null): Int =
+        if (category == null) getAll().size else getAll().count { it.category == category }
+
     fun clear() {
         preferences.edit().remove(KEY_ENTRIES).apply()
     }
 
     private fun normalize(text: String): String? {
         val clean = text.trim().replace(Regex("\\s+"), " ")
-        return clean.takeIf { it.isNotEmpty() }
+        return clean.take(MAX_MEMORY_TEXT_CHARS).takeIf { it.isNotEmpty() }
     }
 
     private fun save(entries: List<MemoryEntry>) {
@@ -111,5 +118,6 @@ class MemoryRepository(context: Context) {
 
     companion object {
         private const val KEY_ENTRIES = "entries"
+        private const val MAX_MEMORY_TEXT_CHARS = 600
     }
 }
