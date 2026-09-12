@@ -5,8 +5,11 @@ import com.ss.assistent.model.ModelInfo
 import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
 import com.tensai.llamakt.SamplingParams
-import com.tensai.llamakt.TokenCallback
+import com.tensai.llamakt.decode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -87,18 +90,11 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             }
 
             val output = StringBuilder()
-            val params = SamplingParams(
-                nPredict = maxTokens.coerceIn(32, 1024),
-                temperature = 0.7f,
-                topK = 40,
-                topP = 0.95f,
-                minP = 0.05f,
-            )
-
+            val params = samplingParams(maxTokens)
             val sampledTokens = activeEngine.completion(
                 prompt = prompt,
                 params = params,
-                callback = TokenCallback { token -> output.append(token) },
+                callback = com.tensai.llamakt.TokenCallback { token -> output.append(token) },
             )
 
             if (sampledTokens < 0) {
@@ -117,6 +113,54 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             )
         }
     }
+
+    override fun generateStream(
+        messages: List<ChatMessage>,
+        maxTokens: Int
+    ): Flow<RuntimeResult> = flow {
+        val activeEngine = engine
+        if (activeEngine == null) {
+            emit(RuntimeResult.Error("No local model is loaded."))
+            return@flow
+        }
+        if (messages.isEmpty()) {
+            emit(RuntimeResult.Error("There is no message to generate a response to."))
+            return@flow
+        }
+
+        try {
+            val nativeMessages = messages.map { message ->
+                NativeChatMessage(message.role, message.content)
+            }
+            val prompt = activeEngine.formatChat(
+                messages = nativeMessages,
+                enableThinking = false,
+            )
+            val promptTokens = activeEngine.tokenize(prompt).size
+            if (promptTokens >= contextTokens - 32) {
+                emit(RuntimeResult.Error(
+                    "The conversation is too long for the current local context window. Clear the conversation and try again."
+                ))
+                return@flow
+            }
+
+            activeEngine.decode(prompt, samplingParams(maxTokens)).collect { token ->
+                if (token.isNotEmpty()) {
+                    emit(RuntimeResult.Success(token))
+                }
+            }
+        } catch (error: Throwable) {
+            emit(RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly."))
+        }
+    }.flowOn(Dispatchers.Default)
+
+    private fun samplingParams(maxTokens: Int): SamplingParams = SamplingParams(
+        nPredict = maxTokens.coerceIn(32, 1024),
+        temperature = 0.7f,
+        topK = 40,
+        topP = 0.95f,
+        minP = 0.05f,
+    )
 
     override fun unload() {
         engine?.free()
