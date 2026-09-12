@@ -5,10 +5,19 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
+enum class MemoryLock {
+    /** Normal memories may be edited by the user. */
+    EDITABLE,
+
+    /** Exact user-provided text is preserved byte-for-byte until the user explicitly changes it. */
+    SEALED
+}
+
 data class MemoryEntry(
     val id: String = UUID.randomUUID().toString(),
     val category: MemoryCategory,
-    val text: String
+    val text: String,
+    val lock: MemoryLock = MemoryLock.EDITABLE
 )
 
 enum class MemoryCategory(val key: String, val title: String) {
@@ -35,13 +44,14 @@ class MemoryRepository(context: Context) {
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.getJSONObject(index)
-                    val text = item.optString("text").trim()
+                    val text = item.optString("text")
                     if (text.isNotEmpty()) {
                         add(
                             MemoryEntry(
                                 id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
                                 category = MemoryCategory.fromKey(item.optString("category")),
-                                text = text
+                                text = text,
+                                lock = if (item.optString("lock") == MemoryLock.SEALED.name) MemoryLock.SEALED else MemoryLock.EDITABLE
                             )
                         )
                     }
@@ -50,21 +60,29 @@ class MemoryRepository(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    fun add(category: MemoryCategory, text: String): MemoryEntry? {
-        val cleanText = normalize(text) ?: return null
-        val existing = getAll()
-        if (existing.any { it.category == category && it.text.equals(cleanText, ignoreCase = true) }) {
-            return null
-        }
-        val entry = MemoryEntry(category = category, text = cleanText)
-        save(existing + entry)
-        return entry
+    /** Adds a normal memory after applying the normal length/whitespace cleanup. */
+    fun add(category: MemoryCategory, text: String): MemoryEntry? =
+        addInternal(category, normalize(text) ?: return null, MemoryLock.EDITABLE)
+
+    /**
+     * Adds an exact memory. The supplied text is intentionally not trimmed, collapsed,
+     * shortened, or otherwise transformed. This is the storage primitive for an explicit
+     * "save this exactly as written" request.
+     */
+    fun addExact(category: MemoryCategory, exactText: String): MemoryEntry? {
+        if (exactText.isEmpty()) return null
+        if (exactText.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
+        return addInternal(category, exactText, MemoryLock.SEALED)
     }
 
     fun update(id: String, category: MemoryCategory, text: String): MemoryEntry? {
+        val existing = getAll().firstOrNull { it.id == id } ?: return null
+        if (existing.lock == MemoryLock.SEALED) {
+            return updateSealed(id, category, text, explicitOverride = true)
+        }
+
         val cleanText = normalize(text) ?: return null
-        val existing = getAll()
-        if (existing.any {
+        if (getAll().any {
                 it.id != id &&
                     it.category == category &&
                     it.text.equals(cleanText, ignoreCase = true)
@@ -72,16 +90,33 @@ class MemoryRepository(context: Context) {
             return null
         }
 
-        var updated: MemoryEntry? = null
-        val result = existing.map { entry ->
-            if (entry.id == id) {
-                MemoryEntry(id = id, category = category, text = cleanText).also { updated = it }
-            } else {
-                entry
-            }
+        return replaceEntry(id, MemoryEntry(id = id, category = category, text = cleanText, lock = MemoryLock.EDITABLE))
+    }
+
+    /**
+     * Updates a sealed memory only through an explicit replacement operation.
+     * No normalization is applied, so the replacement becomes the new exact sealed value.
+     */
+    fun updateSealed(
+        id: String,
+        category: MemoryCategory,
+        exactReplacement: String,
+        explicitOverride: Boolean
+    ): MemoryEntry? {
+        if (!explicitOverride || exactReplacement.isEmpty() || exactReplacement.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
+        val existing = getAll().firstOrNull { it.id == id } ?: return null
+        if (existing.lock != MemoryLock.SEALED) return null
+        if (getAll().any {
+                it.id != id &&
+                    it.category == category &&
+                    it.text == exactReplacement
+            }) {
+            return null
         }
-        if (updated != null) save(result)
-        return updated
+        return replaceEntry(
+            id,
+            MemoryEntry(id = id, category = category, text = exactReplacement, lock = MemoryLock.SEALED)
+        )
     }
 
     fun delete(id: String) {
@@ -95,13 +130,30 @@ class MemoryRepository(context: Context) {
     fun count(category: MemoryCategory? = null): Int =
         if (category == null) getAll().size else getAll().count { it.category == category }
 
+    fun count(lock: MemoryLock): Int = getAll().count { it.lock == lock }
+
     fun clear() {
         preferences.edit().remove(KEY_ENTRIES).apply()
     }
 
+    private fun addInternal(category: MemoryCategory, text: String, lock: MemoryLock): MemoryEntry? {
+        val existing = getAll()
+        if (existing.any { it.category == category && it.text == text }) return null
+        val entry = MemoryEntry(category = category, text = text, lock = lock)
+        save(existing + entry)
+        return entry
+    }
+
+    private fun replaceEntry(id: String, replacement: MemoryEntry): MemoryEntry? {
+        val existing = getAll()
+        if (existing.none { it.id == id }) return null
+        save(existing.map { if (it.id == id) replacement else it })
+        return replacement
+    }
+
     private fun normalize(text: String): String? {
         val clean = text.trim().replace(Regex("\\s+"), " ")
-        return clean.take(MAX_MEMORY_TEXT_CHARS).takeIf { it.isNotEmpty() }
+        return clean.take(MAX_NORMAL_MEMORY_TEXT_CHARS).takeIf { it.isNotEmpty() }
     }
 
     private fun save(entries: List<MemoryEntry>) {
@@ -111,6 +163,7 @@ class MemoryRepository(context: Context) {
                 put("id", entry.id)
                 put("category", entry.category.key)
                 put("text", entry.text)
+                put("lock", entry.lock.name)
             })
         }
         preferences.edit().putString(KEY_ENTRIES, array.toString()).apply()
@@ -118,6 +171,7 @@ class MemoryRepository(context: Context) {
 
     companion object {
         private const val KEY_ENTRIES = "entries"
-        private const val MAX_MEMORY_TEXT_CHARS = 600
+        private const val MAX_NORMAL_MEMORY_TEXT_CHARS = 600
+        private const val MAX_EXACT_MEMORY_TEXT_CHARS = 6000
     }
 }
