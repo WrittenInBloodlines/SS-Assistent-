@@ -72,7 +72,7 @@ class MemoryRepository(context: Context) {
      * "save this exactly as written" request.
      */
     fun addExact(category: MemoryCategory, exactText: String): MemoryEntry? {
-        if (exactText.isEmpty()) return null
+        if (exactText.isEmpty() || exactText.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
         return addInternal(category, exactText, MemoryLock.SEALED)
     }
 
@@ -107,7 +107,7 @@ class MemoryRepository(context: Context) {
         exactReplacement: String,
         explicitOverride: Boolean
     ): MemoryEntry? {
-        if (!explicitOverride || exactReplacement.isEmpty()) return null
+        if (!explicitOverride || exactReplacement.isEmpty() || exactReplacement.length > MAX_EXACT_MEMORY_TEXT_CHARS) return null
         val existing = getAll().firstOrNull { it.id == id } ?: return null
         if (existing.lock != MemoryLock.SEALED) return null
         if (getAll().any {
@@ -176,5 +176,6 @@ class MemoryRepository(context: Context) {
     companion object {
         private const val KEY_ENTRIES = "entries"
         private const val MAX_NORMAL_MEMORY_TEXT_CHARS = 600
+        private const val MAX_EXACT_MEMORY_TEXT_CHARS = 6000
     }
 }
