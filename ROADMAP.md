@@ -11,10 +11,12 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Runtime abstraction
 - [x] Pin the `hokanosekai/llama.kt` llama.cpp Android runtime
 - [x] Connect the assistant to real local GGUF inference
+- [x] Add model metadata and available-memory preflight checks
+- [x] Keep the local context bounded instead of using the model's full advertised context by default
 - [ ] Build and run on a real arm64 Android device
 - [ ] Validate `Qwen3-4B-Q4_K_M.gguf` on the target phone
 - [ ] Add streamed token output and generation cancellation
-- [ ] Add model compatibility and memory checks before loading
+- [ ] Add clearer model diagnostics in the Models screen
 
 ## Phase 2 — Assistant personality and conversation quality
 
