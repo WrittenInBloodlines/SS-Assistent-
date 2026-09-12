@@ -19,11 +19,12 @@ enum class MemoryCategory(val key: String, val title: String) {
     FACT("fact", "Facts");
 
     companion object {
-        fun fromKey(key: String?): MemoryCategory = values().firstOrNull { it.key == key } ?: FACT
+        fun fromKey(key: String?): MemoryCategory =
+            values().firstOrNull { it.key == key } ?: FACT
     }
 }
 
-/** Explicit user-controlled memories. Nothing is added automatically yet. */
+/** Explicit user-controlled memories. Nothing is added automatically. */
 class MemoryRepository(context: Context) {
     private val preferences = context.getSharedPreferences("assistant_memory", Context.MODE_PRIVATE)
 
@@ -34,22 +35,53 @@ class MemoryRepository(context: Context) {
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.getJSONObject(index)
-                    add(
-                        MemoryEntry(
-                            id = item.getString("id"),
-                            category = MemoryCategory.fromKey(item.getString("category")),
-                            text = item.getString("text")
+                    val text = item.optString("text").trim()
+                    if (text.isNotEmpty()) {
+                        add(
+                            MemoryEntry(
+                                id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                                category = MemoryCategory.fromKey(item.optString("category")),
+                                text = text
+                            )
                         )
-                    )
+                    }
                 }
             }
         }.getOrDefault(emptyList())
     }
 
-    fun add(category: MemoryCategory, text: String): MemoryEntry {
-        val entry = MemoryEntry(category = category, text = text.trim())
-        save(getAll() + entry)
+    fun add(category: MemoryCategory, text: String): MemoryEntry? {
+        val cleanText = normalize(text) ?: return null
+        val existing = getAll()
+        if (existing.any { it.category == category && it.text.equals(cleanText, ignoreCase = true) }) {
+            return null
+        }
+        val entry = MemoryEntry(category = category, text = cleanText)
+        save(existing + entry)
         return entry
+    }
+
+    fun update(id: String, category: MemoryCategory, text: String): MemoryEntry? {
+        val cleanText = normalize(text) ?: return null
+        val existing = getAll()
+        if (existing.any {
+                it.id != id &&
+                    it.category == category &&
+                    it.text.equals(cleanText, ignoreCase = true)
+            }) {
+            return null
+        }
+
+        var updated: MemoryEntry? = null
+        val result = existing.map { entry ->
+            if (entry.id == id) {
+                MemoryEntry(id = id, category = category, text = cleanText).also { updated = it }
+            } else {
+                entry
+            }
+        }
+        if (updated != null) save(result)
+        return updated
     }
 
     fun delete(id: String) {
@@ -58,6 +90,11 @@ class MemoryRepository(context: Context) {
 
     fun clear() {
         preferences.edit().remove(KEY_ENTRIES).apply()
+    }
+
+    private fun normalize(text: String): String? {
+        val clean = text.trim().replace(Regex("\\s+"), " ")
+        return clean.takeIf { it.isNotEmpty() }
     }
 
     private fun save(entries: List<MemoryEntry>) {
