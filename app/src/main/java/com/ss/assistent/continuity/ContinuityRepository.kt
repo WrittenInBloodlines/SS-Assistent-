@@ -34,6 +34,7 @@ data class ContinuityWarning(
 /** Local, user-controlled story canon. It never silently changes facts or secrets. */
 class ContinuityRepository(context: Context) {
     private val preferences = context.getSharedPreferences("assistant_continuity", Context.MODE_PRIVATE)
+    private val canonHistory = CanonChangeHistory(context)
 
     fun getLoreFacts(): List<LoreFact> = readArray(KEY_LORE).mapNotNull { item ->
         val subject = item.optString("subject")
@@ -64,14 +65,26 @@ class ContinuityRepository(context: Context) {
         if (replacement.isEmpty()) return null
         val existing = getLoreFacts()
         val old = existing.firstOrNull { it.id == id } ?: return null
+        if (old.value == replacement) return old
         val updated = old.copy(value = replacement)
         writeArray(KEY_LORE, existing.map { if (it.id == id) updated else it }) { fact ->
             JSONObject().apply {
                 put("id", fact.id); put("subject", fact.subject); put("attribute", fact.attribute); put("value", fact.value)
             }
         }
+        canonHistory.record(
+            CanonChange(
+                factId = old.id,
+                subject = old.subject,
+                attribute = old.attribute,
+                oldValue = old.value,
+                newValue = updated.value
+            )
+        )
         return updated
     }
+
+    fun getCanonHistory(): List<CanonChange> = canonHistory.getChanges()
 
     fun getSecrets(): List<SecretFact> = readArray(KEY_SECRETS).mapNotNull { item ->
         val subject = item.optString("subject")
