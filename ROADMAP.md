@@ -26,11 +26,13 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add a configurable writing style / response style system
 - [x] Add concise, normal, detailed and custom style controls
 - [x] Preserve the user's chosen style between conversations
+- [x] Persist a user-defined custom style instruction
 - [x] Add conversation persistence
 - [x] Add a clear-conversation action
 - [x] Bound short-term conversation context before local generation
+- [x] Add generation controls for maximum response length, temperature, Top-K and Top-P
 - [ ] Add conversation rename and export
-- [ ] Add generation settings UI
+- [ ] Add a more advanced per-conversation generation profile
 
 ## Phase 3 — Real memory
 
