@@ -6,6 +6,7 @@ import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
 import com.tensai.llamakt.SamplingParams
 import com.tensai.llamakt.decode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -22,10 +23,11 @@ import java.io.File
 class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     private var engine: LlamaEngine? = null
     private var loadedModelPath: String? = null
-    private var contextTokens: Int = 4096
+    private var contextTokens: Int = ModelDiagnostics.DEFAULT_CONTEXT_TOKENS
 
     override suspend fun load(model: ModelInfo): RuntimeResult = withContext(Dispatchers.Default) {
         if (!File(model.path).exists()) {
+            unload()
             return@withContext RuntimeResult.Error("The selected model file no longer exists on the device.")
         }
 
@@ -38,8 +40,8 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             is DiagnosticResult.Ready -> contextTokens = diagnostic.contextTokens
         }
 
-        try {
-            engine?.free()
+        return@withContext try {
+            unload()
             val newEngine = LlamaEngine()
             newEngine.load(
                 path = model.path,
@@ -53,9 +55,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             loadedModelPath = model.path
             RuntimeResult.Success("Model loaded.")
         } catch (error: Throwable) {
-            engine?.free()
-            engine = null
-            loadedModelPath = null
+            unload()
             RuntimeResult.Error(
                 error.message ?: "The native GGUF runtime could not load this model."
             )
@@ -98,7 +98,8 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             )
 
             if (sampledTokens < 0) {
-                RuntimeResult.Error("Local inference failed while generating the response.")
+                unload()
+                RuntimeResult.Error("Local inference failed. The model was unloaded so it can be reloaded safely on the next attempt.")
             } else {
                 val text = output.toString().trim()
                 if (text.isEmpty()) {
@@ -107,9 +108,12 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     RuntimeResult.Success(text)
                 }
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
+            unload()
             RuntimeResult.Error(
-                error.message ?: "Local inference failed unexpectedly."
+                error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."
             )
         }
     }
@@ -149,8 +153,13 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     emit(RuntimeResult.Success(token))
                 }
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
-            emit(RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly."))
+            unload()
+            emit(RuntimeResult.Error(
+                error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."
+            ))
         }
     }.flowOn(Dispatchers.Default)
 
@@ -166,7 +175,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         engine?.free()
         engine = null
         loadedModelPath = null
-        contextTokens = 4096
+        contextTokens = ModelDiagnostics.DEFAULT_CONTEXT_TOKENS
     }
 
     override fun isLoaded(): Boolean = engine != null
