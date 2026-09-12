@@ -2,6 +2,7 @@ package com.ss.assistent.assistant
 
 import android.content.Context
 import com.ss.assistent.model.ModelInfo
+import com.ss.assistent.settings.GenerationSettings
 import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
 import com.tensai.llamakt.SamplingParams
@@ -14,12 +15,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Real on-device GGUF runtime backed by llama.cpp through llama.kt.
- *
- * The UI still talks to AssistantRuntime, so the native engine remains isolated
- * from the rest of the assistant architecture.
- */
+/** Real on-device GGUF runtime backed by llama.cpp through llama.kt. */
 class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     private var engine: LlamaEngine? = null
     private var loadedModelPath: String? = null
@@ -30,16 +26,13 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             unload()
             return@withContext RuntimeResult.Error("The selected model file no longer exists on the device.")
         }
-
         if (engine != null && loadedModelPath == model.path) {
             return@withContext RuntimeResult.Success("Model already loaded.")
         }
-
         when (val diagnostic = ModelDiagnostics.inspect(context, model)) {
             is DiagnosticResult.Error -> return@withContext RuntimeResult.Error(diagnostic.message)
             is DiagnosticResult.Ready -> contextTokens = diagnostic.contextTokens
         }
-
         return@withContext try {
             unload()
             val newEngine = LlamaEngine()
@@ -56,71 +49,49 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             RuntimeResult.Success("Model loaded.")
         } catch (error: Throwable) {
             unload()
-            RuntimeResult.Error(
-                error.message ?: "The native GGUF runtime could not load this model."
-            )
+            RuntimeResult.Error(error.message ?: "The native GGUF runtime could not load this model.")
         }
     }
 
     override suspend fun generate(
         messages: List<ChatMessage>,
-        maxTokens: Int
+        settings: GenerationSettings
     ): RuntimeResult = withContext(Dispatchers.Default) {
-        val activeEngine = engine
-            ?: return@withContext RuntimeResult.Error("No local model is loaded.")
-
-        if (messages.isEmpty()) {
-            return@withContext RuntimeResult.Error("There is no message to generate a response to.")
-        }
-
+        val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
+        if (messages.isEmpty()) return@withContext RuntimeResult.Error("There is no message to generate a response to.")
         try {
-            val nativeMessages = messages.map { message ->
-                NativeChatMessage(message.role, message.content)
-            }
             val prompt = activeEngine.formatChat(
-                messages = nativeMessages,
+                messages = messages.map { NativeChatMessage(it.role, it.content) },
                 enableThinking = false,
             )
-
-            val promptTokens = activeEngine.tokenize(prompt).size
-            if (promptTokens >= contextTokens - 32) {
-                return@withContext RuntimeResult.Error(
-                    "The conversation is too long for the current local context window. Clear the conversation and try again."
-                )
+            if (activeEngine.tokenize(prompt).size >= contextTokens - 32) {
+                return@withContext RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
             }
-
             val output = StringBuilder()
-            val params = samplingParams(maxTokens)
             val sampledTokens = activeEngine.completion(
                 prompt = prompt,
-                params = params,
+                params = samplingParams(settings),
                 callback = com.tensai.llamakt.TokenCallback { token -> output.append(token) },
             )
-
             if (sampledTokens < 0) {
                 unload()
                 RuntimeResult.Error("Local inference failed. The model was unloaded so it can be reloaded safely on the next attempt.")
             } else {
                 val text = output.toString().trim()
-                if (text.isEmpty()) {
-                    RuntimeResult.Error("The model finished without producing a response.")
-                } else {
-                    RuntimeResult.Success(text)
-                }
+                if (text.isEmpty()) RuntimeResult.Error("The model finished without producing a response.")
+                else RuntimeResult.Success(text)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             unload()
-            RuntimeResult.Error(
-                error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."
-            )
+            RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried.")
         }
     }
 
     override fun generateStream(
         messages: List<ChatMessage>,
-        maxTokens: Int
+        settings: GenerationSettings
     ): Flow<RuntimeResult> = flow {
         val activeEngine = engine
         if (activeEngine == null) {
@@ -131,43 +102,31 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             emit(RuntimeResult.Error("There is no message to generate a response to."))
             return@flow
         }
-
         try {
-            val nativeMessages = messages.map { message ->
-                NativeChatMessage(message.role, message.content)
-            }
             val prompt = activeEngine.formatChat(
-                messages = nativeMessages,
+                messages = messages.map { NativeChatMessage(it.role, it.content) },
                 enableThinking = false,
             )
-            val promptTokens = activeEngine.tokenize(prompt).size
-            if (promptTokens >= contextTokens - 32) {
-                emit(RuntimeResult.Error(
-                    "The conversation is too long for the current local context window. Clear the conversation and try again."
-                ))
+            if (activeEngine.tokenize(prompt).size >= contextTokens - 32) {
+                emit(RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again."))
                 return@flow
             }
-
-            activeEngine.decode(prompt, samplingParams(maxTokens)).collect { token ->
-                if (token.isNotEmpty()) {
-                    emit(RuntimeResult.Success(token))
-                }
+            activeEngine.decode(prompt, samplingParams(settings)).collect { token ->
+                if (token.isNotEmpty()) emit(RuntimeResult.Success(token))
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             unload()
-            emit(RuntimeResult.Error(
-                error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."
-            ))
+            emit(RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."))
         }
     }.flowOn(Dispatchers.Default)
 
-    private fun samplingParams(maxTokens: Int): SamplingParams = SamplingParams(
-        nPredict = maxTokens.coerceIn(32, 1024),
-        temperature = 0.7f,
-        topK = 40,
-        topP = 0.95f,
+    private fun samplingParams(settings: GenerationSettings): SamplingParams = SamplingParams(
+        nPredict = settings.maxTokens.coerceIn(32, 1024),
+        temperature = settings.temperature.coerceIn(0.1f, 1.5f),
+        topK = settings.topK.coerceIn(1, 100),
+        topP = settings.topP.coerceIn(0.1f, 1.0f),
         minP = 0.05f,
     )
 
