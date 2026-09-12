@@ -129,13 +129,15 @@ object ContinuityAnalyzer {
                     relatedSecretId = secret.id
                 )
             }
-            if (secret.knownBy.isEmpty() || relevantRules.isEmpty()) ContinuityWarning(
-                type = WarningType.SECRET_LEAK,
-                title = "Secret leak detected",
-                details = "The draft appears to reveal hidden information about ${secret.subject} that may not be known by the characters.",
-                suggestion = "Keep the secret hidden and preserve uncertainty, or explicitly mark this scene as a reveal.",
-                relatedSecretId = secret.id
-            ) else null
+            if (secret.knownBy.isEmpty() || relevantRules.isEmpty()) {
+                ContinuityWarning(
+                    type = WarningType.SECRET_LEAK,
+                    title = "Secret leak detected",
+                    details = "The draft appears to reveal hidden information about ${secret.subject} that may not be known by the characters.",
+                    suggestion = "Keep the secret hidden and preserve uncertainty, or explicitly mark this scene as a reveal.",
+                    relatedSecretId = secret.id
+                )
+            } else null
         }
     }
 
@@ -150,7 +152,12 @@ object ContinuityAnalyzer {
             if (destinationIndex < 0) return@mapNotNull null
             val between = lower.substring(originIndex, destinationIndex)
             if (transitionWords.any(between::contains)) return@mapNotNull null
-            ContinuityWarning(WarningType.PLOT_HOLE, "Plot hole detected", "The draft establishes a character at $origin, then places them at $destination without a clear transition between the locations.", "Add a short transition showing how the character moved between the locations, or make the scene break explicit.")
+            ContinuityWarning(
+                type = WarningType.PLOT_HOLE,
+                title = "Plot hole detected",
+                details = "The draft establishes a character at $origin, then places them at $destination without a clear transition between the locations.",
+                suggestion = "Add a short transition showing how the character moved between the locations, or make the scene break explicit."
+            )
         }
     }
 
@@ -165,14 +172,28 @@ object ContinuityAnalyzer {
             scene to index
         }.sortedBy { it.second }
         if (mentions.size < 2) return emptyList()
-        buildList {
+        return buildList {
             for (i in 1 until mentions.size) {
                 val (previous, previousIndex) = mentions[i - 1]
                 val (current, currentIndex) = mentions[i]
-                if (current.order < previous.order) add(ContinuityWarning(WarningType.PLOT_HOLE, "Timeline order conflict", "The draft mentions '${current.title}' after '${previous.title}', but the stored timeline orders it earlier.", "Reorder the scenes, make the flashback/time jump explicit, or update the timeline deliberately."))
+                if (current.order < previous.order) add(
+                    ContinuityWarning(
+                        type = WarningType.PLOT_HOLE,
+                        title = "Timeline order conflict",
+                        details = "The draft mentions '${current.title}' after '${previous.title}', but the stored timeline orders it earlier.",
+                        suggestion = "Reorder the scenes, make the flashback/time jump explicit, or update the timeline deliberately."
+                    )
+                )
                 if (current.location.equals(previous.location, true) && current.order > previous.order) {
                     val between = lower.substring(previousIndex.coerceAtLeast(0), currentIndex.coerceAtLeast(previousIndex))
-                    if (listOf("later", "meanwhile", "after", "hours later", "the next day", "scene", "cut to", "meanwhile").none(between::contains)) add(ContinuityWarning(WarningType.PLOT_HOLE, "Scene transition may be missing", "The draft reaches a later timeline scene in the same location without an explicit time or scene transition.", "Add a scene break or clear time transition if this is intentionally a later moment."))
+                    if (listOf("later", "meanwhile", "after", "hours later", "the next day", "scene", "cut to").none(between::contains)) add(
+                        ContinuityWarning(
+                            type = WarningType.PLOT_HOLE,
+                            title = "Scene transition may be missing",
+                            details = "The draft reaches a later timeline scene in the same location without an explicit time or scene transition.",
+                            suggestion = "Add a scene break or clear time transition if this is intentionally a later moment."
+                        )
+                    )
                 }
             }
         }
