@@ -13,10 +13,11 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Connect the assistant to real local GGUF inference
 - [x] Add model metadata and available-memory preflight checks
 - [x] Keep the local context bounded instead of using the model's full advertised context by default
+- [x] Add streamed token output and generation cancellation
 - [ ] Build and run on a real arm64 Android device
 - [ ] Validate `Qwen3-4B-Q4_K_M.gguf` on the target phone
-- [ ] Add streamed token output and generation cancellation
 - [ ] Add clearer model diagnostics in the Models screen
+- [ ] Add robust runtime error recovery and model unload/reload handling
 
 ## Phase 2 — Assistant personality and conversation quality
 
@@ -27,6 +28,7 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add conversation persistence
 - [x] Add a clear-conversation action
 - [ ] Add conversation rename and export
+- [ ] Add generation settings UI
 
 ## Phase 3 — Real memory
 
