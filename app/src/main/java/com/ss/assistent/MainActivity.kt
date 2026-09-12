@@ -38,7 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.ui.screens.AssistantScreen
+import com.ss.assistent.ui.screens.MemoryScreen
 import com.ss.assistent.ui.screens.ModelsScreen
+import com.ss.assistent.ui.screens.SettingsScreen
 import com.ss.assistent.ui.theme.SSAssistentTheme
 
 class MainActivity : ComponentActivity() {
@@ -46,14 +48,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            SSAssistentTheme {
-                SSAssistentApp()
-            }
+            SSAssistentTheme { SSAssistentApp() }
         }
     }
 }
 
-private enum class AppScreen { Home, Models, Assistant }
+private enum class AppScreen { Home, Models, Assistant, Memory, Settings }
 
 @Composable
 private fun SSAssistentApp() {
@@ -62,38 +62,38 @@ private fun SSAssistentApp() {
     when (screen) {
         AppScreen.Home -> HomeScreen(
             onModels = { screen = AppScreen.Models },
-            onAssistant = { screen = AppScreen.Assistant }
+            onAssistant = { screen = AppScreen.Assistant },
+            onMemory = { screen = AppScreen.Memory },
+            onSettings = { screen = AppScreen.Settings }
         )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Assistant -> AssistantScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.Memory -> MemoryScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.Settings -> SettingsScreen(onBack = { screen = AppScreen.Home })
     }
 }
 
 @Composable
-private fun HomeScreen(onModels: () -> Unit, onAssistant: () -> Unit) {
+private fun HomeScreen(
+    onModels: () -> Unit,
+    onAssistant: () -> Unit,
+    onMemory: () -> Unit,
+    onSettings: () -> Unit
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val models = remember { ModelRepository(context).getModels() }
     val modelCount = models.size
     val activeModel = models.firstOrNull { it.isActive }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 34.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { Header() }
-            item {
-                ModelCard(
-                    modelName = activeModel?.name,
-                    modelCount = modelCount,
-                    onOpenModels = onModels
-                )
-            }
-            item { QuickActions(onModels = onModels, onAssistant = onAssistant) }
+            item { ModelCard(activeModel?.name, modelCount, onModels) }
+            item { QuickActions(onModels, onAssistant, onMemory, onSettings) }
             item { ActivityCard() }
             item { PermissionCard() }
         }
@@ -141,40 +141,31 @@ private fun ModelCard(modelName: String?, modelCount: Int, onOpenModels: () -> U
                 )
             }
             Spacer(Modifier.height(17.dp))
-            Text(
-                "Models are stored separately on your device and are never bundled into the APK.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                lineHeight = 19.sp
-            )
+            Text("Models are stored separately on your device and are never bundled into the APK.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
 
 @Composable
-private fun QuickActions(onModels: () -> Unit, onAssistant: () -> Unit) {
+private fun QuickActions(onModels: () -> Unit, onAssistant: () -> Unit, onMemory: () -> Unit, onSettings: () -> Unit) {
     Column {
         SectionTitle("Quick access")
         Spacer(Modifier.height(9.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ActionCard("✦", "Assistant", Modifier.weight(1f), onClick = onAssistant)
-            ActionCard("▣", "Models", Modifier.weight(1f), onClick = onModels)
+            ActionCard("✦", "Assistant", Modifier.weight(1f), onAssistant)
+            ActionCard("▣", "Models", Modifier.weight(1f), onModels)
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ActionCard("⌁", "Memory", Modifier.weight(1f))
-            ActionCard("⚙", "Settings", Modifier.weight(1f))
+            ActionCard("⌁", "Memory", Modifier.weight(1f), onMemory)
+            ActionCard("⚙", "Settings", Modifier.weight(1f), onSettings)
         }
     }
 }
 
 @Composable
-private fun ActionCard(icon: String, title: String, modifier: Modifier, onClick: () -> Unit = {}) {
-    Card(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
+private fun ActionCard(icon: String, title: String, modifier: Modifier, onClick: () -> Unit) {
+    Card(modifier = modifier.clickable(onClick = onClick), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp)) {
             Text(icon, color = MaterialTheme.colorScheme.primary, fontSize = 20.sp)
             Spacer(Modifier.height(13.dp))
