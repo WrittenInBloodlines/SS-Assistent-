@@ -42,8 +42,8 @@ object MemoryIntentParser {
 
     /**
      * Parses only an explicit replacement command. Both the old and new values must be
-     * present, and the old value must be quoted. This prevents an ordinary sentence such as
-     * "change my memory" from being treated as a canon-changing command.
+     * present, and both values must be quoted. This prevents ordinary conversation from being
+     * treated as a canon-changing command.
      *
      * Examples:
      * change sealed memory "Ciro has blue eyes" to "Ciro has dark brown eyes"
@@ -60,9 +60,12 @@ object MemoryIntentParser {
             Regex("^replace sealed memory\\s+\\\"(.+)\\\"\\s+with\\s+\\\"(.+)\\\"$", flags),
             Regex("^change exact memory\\s+\\\"(.+)\\\"\\s+to\\s+\\\"(.+)\\\"$", flags),
             Regex("^replace exact memory\\s+\\\"(.+)\\\"\\s+with\\s+\\\"(.+)\\\"$", flags),
+            Regex("^update sealed memory\\s+\\\"(.+)\\\"\\s+to\\s+\\\"(.+)\\\"$", flags),
+            Regex("^update exact memory\\s+\\\"(.+)\\\"\\s+to\\s+\\\"(.+)\\\"$", flags),
             Regex("^ändere versiegelte erinnerung\\s+\\\"(.+)\\\"\\s+zu\\s+\\\"(.+)\\\"$", flags),
             Regex("^ersetze versiegelte erinnerung\\s+\\\"(.+)\\\"\\s+durch\\s+\\\"(.+)\\\"$", flags),
-            Regex("^ändere exakte erinnerung\\s+\\\"(.+)\\\"\\s+zu\\s+\\\"(.+)\\\"$", flags)
+            Regex("^ändere exakte erinnerung\\s+\\\"(.+)\\\"\\s+zu\\s+\\\"(.+)\\\"$", flags),
+            Regex("^aktualisiere versiegelte erinnerung\\s+\\\"(.+)\\\"\\s+zu\\s+\\\"(.+)\\\"$", flags)
         )
 
         val match = patterns.firstNotNullOfOrNull { it.matchEntire(trimmed) } ?: return null
