@@ -48,6 +48,9 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Add memory search/filtering
 - [x] Add duplicate protection for saved memories
 - [x] Add a clear "Forget all" workflow
+- [x] Add explicit "Remember" capture from conversation messages
+- [x] Limit saved memory text length and normalize whitespace
+- [x] Add category-aware memory counting and clearing primitives
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
 - [ ] Add a clear "Forget" workflow for individual memories and categories
 - [ ] Add local encrypted storage where appropriate
