@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ss.assistent.assistant.DiagnosticResult
+import com.ss.assistent.assistant.ModelDiagnostics
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
 import kotlinx.coroutines.CoroutineScope
@@ -48,14 +50,34 @@ fun ModelsScreen(onBack: () -> Unit) {
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     var models by remember { mutableStateOf(emptyList<ModelInfo>()) }
     var importing by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var diagnostics by remember { mutableStateOf<Map<String, DiagnosticResult>>(emptyMap()) }
     var deleteTarget by remember { mutableStateOf<ModelInfo?>(null) }
 
     fun refresh() {
         models = repository.getModels()
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    fun inspectModels() {
+        val current = repository.getModels()
+        models = current
+        checking = true
+        scope.launch(Dispatchers.Default) {
+            val results = current.associate { model ->
+                model.id to ModelDiagnostics.inspect(context, model)
+            }
+            withContext(Dispatchers.Main) {
+                diagnostics = results
+                checking = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refresh()
+        inspectModels()
+    }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -69,6 +91,7 @@ fun ModelsScreen(onBack: () -> Unit) {
                     withContext(Dispatchers.Main) {
                         importing = false
                         refresh()
+                        inspectModels()
                     }
                 }
                 .onFailure { throwable ->
@@ -109,6 +132,19 @@ fun ModelsScreen(onBack: () -> Unit) {
             }
         }
 
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { inspectModels() },
+            enabled = !checking && !importing,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (checking) {
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.height(18.dp))
+            } else {
+                Text("Check models")
+            }
+        }
+
         error?.let {
             Spacer(Modifier.height(10.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -137,11 +173,17 @@ fun ModelsScreen(onBack: () -> Unit) {
             items(models, key = { it.id }) { model ->
                 ModelItem(
                     model = model,
+                    diagnostic = diagnostics[model.id],
                     onActivate = {
                         repository.setActive(model.id)
                         refresh()
                     },
-                    onDelete = { deleteTarget = model }
+                    onDelete = {
+                        repository.delete(model.id)
+                        diagnostics = diagnostics - model.id
+                        refresh()
+                    },
+                    onConfirmDelete = { deleteTarget = model }
                 )
             }
         }
@@ -155,6 +197,7 @@ fun ModelsScreen(onBack: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     repository.delete(model.id)
+                    diagnostics = diagnostics - model.id
                     deleteTarget = null
                     refresh()
                 }) { Text("Delete") }
@@ -165,7 +208,13 @@ fun ModelsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun ModelItem(model: ModelInfo, onActivate: () -> Unit, onDelete: () -> Unit) {
+private fun ModelItem(
+    model: ModelInfo,
+    diagnostic: DiagnosticResult?,
+    onActivate: () -> Unit,
+    onDelete: () -> Unit,
+    onConfirmDelete: () -> Unit,
+) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(18.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -180,10 +229,46 @@ private fun ModelItem(model: ModelInfo, onActivate: () -> Unit, onDelete: () -> 
                     )
                 }
             }
+
+            Spacer(Modifier.height(10.dp))
+            when (diagnostic) {
+                is DiagnosticResult.Ready -> {
+                    Text(
+                        "${diagnostic.metadata.architecture} · ${diagnostic.modelParameterLabel}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Context: ${diagnostic.contextTokens} tokens · Available memory: ${diagnostic.availableMemoryLabel}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (diagnostic.deviceLowMemory) {
+                        Text(
+                            "Android currently reports low memory. Generation may be unstable.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                is DiagnosticResult.Error -> {
+                    Text(
+                        diagnostic.message,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                null -> Text(
+                    "Not checked yet.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!model.isActive) OutlinedButton(onClick = onActivate) { Text("Set active") }
-                TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onConfirmDelete) { Text("Delete") }
             }
         }
     }
