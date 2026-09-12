@@ -62,8 +62,9 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Provide a sealed-memory replacement primitive that requires an explicit override and preserves the replacement exactly
 - [x] Add a local sealed-memory version/history trail and review UI
 - [x] Add deterministic parsing for explicit sealed-memory replacement commands with quoted old/new values
-- [ ] Resolve parsed sealed-memory replacement against the user's stored memory and show a confirmation preview
-- [ ] Apply a confirmed replacement while preserving every other character/content exactly
+- [x] Resolve parsed sealed-memory replacement against the user's stored memory without mutating it
+- [ ] Show a sealed-memory replacement confirmation preview in the chat UI
+- [x] Apply a confirmed replacement while preserving every other character/content exactly
 - [ ] Avoid storing sensitive information unless the user explicitly chooses to remember it
 - [ ] Add local encrypted storage where appropriate
 - [ ] Add stronger semantic memory retrieval when the local architecture supports it
