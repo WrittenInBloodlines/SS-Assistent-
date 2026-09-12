@@ -48,6 +48,7 @@ import com.ss.assistent.assistant.PromptContext
 import com.ss.assistent.assistant.RuntimeResult
 import com.ss.assistent.chat.ConversationRepository
 import com.ss.assistent.memory.MemoryCategory
+import com.ss.assistent.memory.MemoryIntentParser
 import com.ss.assistent.memory.MemoryRepository
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
@@ -76,8 +77,10 @@ fun AssistantScreen(onBack: () -> Unit) {
     var showClearDialog by remember { mutableStateOf(false) }
     var activeModel by remember { mutableStateOf<ModelInfo?>(null) }
     var memoryTarget by remember { mutableStateOf<String?>(null) }
+    var exactMemoryTarget by remember { mutableStateOf<String?>(null) }
     var memoryCategory by remember { mutableStateOf(MemoryCategory.FACT) }
     var memoryMenuExpanded by remember { mutableStateOf(false) }
+    var exactMemoryMenuExpanded by remember { mutableStateOf(false) }
 
     fun refreshModel() {
         activeModel = modelRepository.getModels().firstOrNull { it.isActive }
@@ -184,6 +187,81 @@ fun AssistantScreen(onBack: () -> Unit) {
         )
     }
 
+    exactMemoryTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { exactMemoryTarget = null },
+            title = { Text("Confirm exact memory") },
+            text = {
+                Column {
+                    Text(
+                        "SS Assistent detected an explicit request to preserve the following text exactly as supplied.",
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(
+                            target,
+                            modifier = Modifier.padding(12.dp),
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "No trimming, whitespace normalization, shortening, or rewriting will be applied.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Memory category", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Spacer(Modifier.height(5.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = exactMemoryMenuExpanded,
+                        onExpandedChange = { exactMemoryMenuExpanded = !exactMemoryMenuExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = memoryCategory.title,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exactMemoryMenuExpanded) }
+                        )
+                        ExposedDropdownMenu(
+                            expanded = exactMemoryMenuExpanded,
+                            onDismissRequest = { exactMemoryMenuExpanded = false }
+                        ) {
+                            MemoryCategory.values().forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.title) },
+                                    onClick = {
+                                        memoryCategory = category
+                                        exactMemoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val saved = memoryRepository.addExact(memoryCategory, target)
+                    status = when {
+                        saved != null -> "Sealed memory saved exactly."
+                        target.length > 6000 -> "This exact memory is too long to seal."
+                        else -> "That exact memory already exists."
+                    }
+                    exactMemoryTarget = null
+                }) { Text("Save exact") }
+            },
+            dismissButton = {
+                TextButton(onClick = { exactMemoryTarget = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(top = 28.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             OutlinedButton(onClick = onBack) { Text("Back") }
@@ -273,9 +351,23 @@ fun AssistantScreen(onBack: () -> Unit) {
                 }
                 Button(
                     onClick = {
-                        val text = input.trim()
+                        val rawText = input
+                        val text = rawText.trim()
                         val model = activeModel
                         if (text.isEmpty() || busy || model == null) return@Button
+
+                        // Explicit exact-memory commands are handled by the app layer.
+                        // They are never sent to the model as ordinary chat messages and
+                        // are never stored until the user confirms the preview.
+                        val exactRequest = MemoryIntentParser.parse(rawText)
+                        if (exactRequest != null) {
+                            exactMemoryTarget = exactRequest.text
+                            memoryCategory = MemoryCategory.FACT
+                            exactMemoryMenuExpanded = false
+                            input = ""
+                            status = "Awaiting exact-memory confirmation."
+                            return@Button
+                        }
 
                         messages.add(ChatMessage("user", text))
                         conversationRepository.saveMessages(messages)
