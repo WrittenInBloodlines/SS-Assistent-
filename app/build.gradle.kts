@@ -7,13 +7,15 @@ plugins {
 android {
     namespace = "com.ss.assistent"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.ss.assistent"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildFeatures {
@@ -25,7 +27,10 @@ android {
     }
 }
 
+kotlin { jvmToolchain(21) }
+
 dependencies {
+    implementation(project(":llama-kt"))
     implementation(platform("androidx.compose:compose-bom:2025.06.01"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.core:core-ktx:1.16.0")
