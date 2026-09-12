@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.ss.assistent.continuity.ContinuityAnalyzer
 import com.ss.assistent.continuity.ContinuityRepository
 import com.ss.assistent.continuity.ContinuityWarning
+import com.ss.assistent.continuity.SecretFact
 import com.ss.assistent.continuity.WarningState
 import com.ss.assistent.continuity.WarningType
 
@@ -55,7 +56,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
     var secretText by remember { mutableStateOf("") }
     var knownBy by remember { mutableStateOf("") }
     var changeWarning by remember { mutableStateOf<ContinuityWarning?>(null) }
-    var editSecret by remember { mutableStateOf<com.ss.assistent.continuity.SecretFact?>(null) }
+    var editSecret by remember { mutableStateOf<SecretFact?>(null) }
     var newCanonValue by remember { mutableStateOf("") }
     var editSecretSubject by remember { mutableStateOf("") }
     var editSecretText by remember { mutableStateOf("") }
@@ -77,12 +78,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
                 Column {
                     Text("This changes the stored canon. It will not happen silently.", fontSize = 13.sp)
                     Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = newCanonValue,
-                        onValueChange = { newCanonValue = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("New canon value") }
-                    )
+                    OutlinedTextField(value = newCanonValue, onValueChange = { newCanonValue = it }, modifier = Modifier.fillMaxWidth(), label = { Text("New canon value") })
                     if (fact != null) {
                         Spacer(Modifier.height(8.dp))
                         Text("Current: ${fact.value}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
@@ -111,7 +107,7 @@ fun ContinuityScreen(onBack: () -> Unit) {
             title = { Text("Edit hidden information") },
             text = {
                 Column {
-                    Text("This edits the stored secret itself. The secret remains hidden unless you explicitly choose Reveal on a warning.", fontSize = 13.sp, lineHeight = 19.sp)
+                    Text("This edits the stored secret itself. It remains hidden unless you explicitly choose Reveal.", fontSize = 13.sp, lineHeight = 19.sp)
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(editSecretSubject, { editSecretSubject = it }, Modifier.fillMaxWidth(), label = { Text("Subject") })
                     Spacer(Modifier.height(7.dp))
@@ -261,8 +257,18 @@ fun ContinuityScreen(onBack: () -> Unit) {
                         warning = warning,
                         onIgnore = { repository.setWarningState(warning.id, WarningState.IGNORED); refresh() },
                         onEdit = {
-                            draft = if (draft.isBlank()) warning.suggestion else "$draft\n\n[Continuity edit suggestion] ${warning.suggestion}"
-                            status = "Draft updated with an edit suggestion."
+                            if (warning.type == WarningType.SECRET_LEAK) {
+                                val secret = warning.relatedSecretId?.let { id -> secrets.firstOrNull { it.id == id } }
+                                if (secret != null) {
+                                    editSecret = secret
+                                    editSecretSubject = secret.subject
+                                    editSecretText = secret.secret
+                                    editKnownBy = secret.knownBy.joinToString(", ")
+                                } else status = "The referenced secret no longer exists."
+                            } else {
+                                draft = if (draft.isBlank()) warning.suggestion else "$draft\n\n[Continuity edit suggestion] ${warning.suggestion}"
+                                status = "Draft updated with an edit suggestion."
+                            }
                         },
                         onChange = { newCanonValue = ""; changeWarning = warning },
                         onKeepHidden = { repository.setWarningState(warning.id, WarningState.RESOLVED); refresh(); status = "Secret kept hidden." },
@@ -292,15 +298,11 @@ private fun WarningCard(
             Text("Suggested fix: ${warning.suggestion}", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp, lineHeight = 18.sp)
             Spacer(Modifier.height(10.dp))
             when (warning.type) {
-                WarningType.PLOT_HOLE -> {
-                    ActionRows(primary = "Edit" to onEdit, secondary = "Ignore" to onIgnore)
-                }
-                WarningType.LORE_CONFLICT -> {
-                    ActionRows(primary = "Change" to onChange, secondary = "Ignore" to onIgnore)
-                }
+                WarningType.PLOT_HOLE -> ActionRows("Edit" to onEdit, "Ignore" to onIgnore)
+                WarningType.LORE_CONFLICT -> ActionRows("Change" to onChange, "Ignore" to onIgnore)
                 WarningType.SECRET_LEAK -> {
-                    ActionRows(primary = "Keep hidden" to onKeepHidden, secondary = "Reveal" to onReveal)
-                    ActionRows(primary = "Edit" to onEdit, secondary = "Ignore" to onIgnore)
+                    ActionRows("Keep hidden" to onKeepHidden, "Reveal" to onReveal)
+                    ActionRows("Edit" to onEdit, "Ignore" to onIgnore)
                 }
             }
         }
