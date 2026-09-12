@@ -50,6 +50,11 @@ import com.ss.assistent.chat.ConversationRepository
 import com.ss.assistent.memory.MemoryCategory
 import com.ss.assistent.memory.MemoryIntentParser
 import com.ss.assistent.memory.MemoryRepository
+import com.ss.assistent.memory.MemorySensitivity
+import com.ss.assistent.memory.MemorySensitivityClassifier
+import com.ss.assistent.memory.MemorySensitivityResult
+import com.ss.assistent.memory.SealedMemoryReplacementResolution
+import com.ss.assistent.memory.SealedMemoryReplacementResolver
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.settings.AssistantPreferences
@@ -65,6 +70,7 @@ fun AssistantScreen(onBack: () -> Unit) {
     val memoryRepository = remember { MemoryRepository(context) }
     val preferences = remember { AssistantPreferences(context) }
     val runtime = remember { LlamaAssistantRuntime(context.applicationContext) }
+    val replacementResolver = remember { SealedMemoryReplacementResolver(memoryRepository) }
     val scope = rememberCoroutineScope()
     val messages = remember {
         mutableStateListOf<ChatMessage>().apply { addAll(conversationRepository.loadMessages()) }
@@ -78,9 +84,12 @@ fun AssistantScreen(onBack: () -> Unit) {
     var activeModel by remember { mutableStateOf<ModelInfo?>(null) }
     var memoryTarget by remember { mutableStateOf<String?>(null) }
     var exactMemoryTarget by remember { mutableStateOf<String?>(null) }
+    var sensitiveMemoryTarget by remember { mutableStateOf<String?>(null) }
+    var sensitiveMemoryResult by remember { mutableStateOf<MemorySensitivityResult?>(null) }
     var memoryCategory by remember { mutableStateOf(MemoryCategory.FACT) }
     var memoryMenuExpanded by remember { mutableStateOf(false) }
     var exactMemoryMenuExpanded by remember { mutableStateOf(false) }
+    var replacementResolution by remember { mutableStateOf<SealedMemoryReplacementResolution.Ready?>(null) }
 
     fun refreshModel() {
         activeModel = modelRepository.getModels().firstOrNull { it.isActive }
@@ -112,6 +121,63 @@ fun AssistantScreen(onBack: () -> Unit) {
                 }) { Text("Clear") }
             },
             dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    sensitiveMemoryTarget?.let { target ->
+        val sensitivity = sensitiveMemoryResult
+        AlertDialog(
+            onDismissRequest = {
+                sensitiveMemoryTarget = null
+                sensitiveMemoryResult = null
+            },
+            title = { Text("Sensitive memory") },
+            text = {
+                Column {
+                    Text(
+                        sensitivity?.reason ?: "This information may be sensitive.",
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(target, modifier = Modifier.padding(12.dp), fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (sensitivity?.shouldBlockPersistence == true) {
+                        Text(
+                            "SS Assistent will not save this kind of information as long-term memory.",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    } else {
+                        Text(
+                            "Saving requires your explicit confirmation. Nothing will be stored unless you choose Save.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (sensitivity?.shouldBlockPersistence != true) {
+                    TextButton(onClick = {
+                        val saved = memoryRepository.add(memoryCategory, target)
+                        status = if (saved != null) "Sensitive memory saved after confirmation." else "That memory already exists."
+                        sensitiveMemoryTarget = null
+                        sensitiveMemoryResult = null
+                    }) { Text("Save") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    sensitiveMemoryTarget = null
+                    sensitiveMemoryResult = null
+                    status = if (sensitivity?.shouldBlockPersistence == true) "Sensitive memory was not saved." else "Sensitive memory save cancelled."
+                }) { Text("Cancel") }
+            }
         )
     }
 
@@ -171,13 +237,24 @@ fun AssistantScreen(onBack: () -> Unit) {
                         memoryTarget = null
                     }) { Text("Save normal") }
                     TextButton(onClick = {
-                        val saved = memoryRepository.addExact(memoryCategory, target)
-                        status = when {
-                            saved != null -> "Sealed memory saved exactly."
-                            target.length > 6000 -> "This exact memory is too long to seal."
-                            else -> "That exact memory already exists."
+                        val sensitivity = MemorySensitivityClassifier.classify(target)
+                        if (sensitivity.shouldBlockPersistence) {
+                            memoryTarget = null
+                            sensitiveMemoryTarget = target
+                            sensitiveMemoryResult = sensitivity
+                        } else if (sensitivity.requiresExplicitChoice) {
+                            memoryTarget = null
+                            sensitiveMemoryTarget = target
+                            sensitiveMemoryResult = sensitivity
+                        } else {
+                            val saved = memoryRepository.addExact(memoryCategory, target)
+                            status = when {
+                                saved != null -> "Sealed memory saved exactly."
+                                target.length > 6000 -> "This exact memory is too long to seal."
+                                else -> "That exact memory already exists."
+                            }
+                            memoryTarget = null
                         }
-                        memoryTarget = null
                     }) { Text("Save exact") }
                 }
             },
@@ -188,6 +265,7 @@ fun AssistantScreen(onBack: () -> Unit) {
     }
 
     exactMemoryTarget?.let { target ->
+        val sensitivity = MemorySensitivityClassifier.classify(target)
         AlertDialog(
             onDismissRequest = { exactMemoryTarget = null },
             title = { Text("Confirm exact memory") },
@@ -200,12 +278,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(10.dp))
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                        Text(
-                            target,
-                            modifier = Modifier.padding(12.dp),
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
-                        )
+                        Text(target, modifier = Modifier.padding(12.dp), fontSize = 13.sp, lineHeight = 18.sp)
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -214,6 +287,15 @@ fun AssistantScreen(onBack: () -> Unit) {
                         fontSize = 11.sp,
                         lineHeight = 16.sp
                     )
+                    if (sensitivity.requiresExplicitChoice) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            if (sensitivity.shouldBlockPersistence) "This type of sensitive information cannot be stored as long-term memory." else sensitivity.reason,
+                            color = if (sensitivity.shouldBlockPersistence) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text("Memory category", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Spacer(Modifier.height(5.dp))
@@ -246,18 +328,72 @@ fun AssistantScreen(onBack: () -> Unit) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    val saved = memoryRepository.addExact(memoryCategory, target)
-                    status = when {
-                        saved != null -> "Sealed memory saved exactly."
-                        target.length > 6000 -> "This exact memory is too long to seal."
-                        else -> "That exact memory already exists."
-                    }
-                    exactMemoryTarget = null
-                }) { Text("Save exact") }
+                if (!sensitivity.shouldBlockPersistence) {
+                    TextButton(onClick = {
+                        val saved = memoryRepository.addExact(memoryCategory, target)
+                        status = when {
+                            saved != null -> "Sealed memory saved exactly."
+                            target.length > 6000 -> "This exact memory is too long to seal."
+                            else -> "That exact memory already exists."
+                        }
+                        exactMemoryTarget = null
+                    }) { Text(if (sensitivity.requiresExplicitChoice) "Save anyway" else "Save exact") }
+                }
             },
             dismissButton = {
-                TextButton(onClick = { exactMemoryTarget = null }) { Text("Cancel") }
+                TextButton(onClick = {
+                    exactMemoryTarget = null
+                    status = if (sensitivity.shouldBlockPersistence) "Sensitive memory was blocked." else "Exact memory save cancelled."
+                }) { Text("Cancel") }
+            }
+        )
+    }
+
+    replacementResolution?.let { resolution ->
+        val replacementSensitivity = MemorySensitivityClassifier.classify(resolution.replacementText)
+        AlertDialog(
+            onDismissRequest = { replacementResolution = null },
+            title = { Text("Replace sealed memory?") },
+            text = {
+                Column {
+                    Text("This changes one existing sealed memory. Nothing is written until you confirm.", fontSize = 13.sp, lineHeight = 18.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Text("Current", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(resolution.memory.text, modifier = Modifier.padding(12.dp), fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Replacement", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(resolution.replacementText, modifier = Modifier.padding(12.dp), fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        when {
+                            replacementSensitivity.shouldBlockPersistence -> "This replacement contains information that cannot be stored as long-term memory."
+                            replacementSensitivity.requiresExplicitChoice -> replacementSensitivity.reason
+                            else -> "The replacement remains sealed and will be preserved exactly as supplied."
+                        },
+                        color = if (replacementSensitivity.shouldBlockPersistence) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            },
+            confirmButton = {
+                if (!replacementSensitivity.shouldBlockPersistence) {
+                    TextButton(onClick = {
+                        val applied = replacementResolver.apply(resolution)
+                        status = if (applied != null) "Sealed memory replaced and history preserved." else "Sealed memory replacement failed."
+                        replacementResolution = null
+                    }) { Text(if (replacementSensitivity.requiresExplicitChoice) "Replace anyway" else "Replace") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    replacementResolution = null
+                    status = if (replacementSensitivity.shouldBlockPersistence) "Replacement blocked." else "Replacement cancelled."
+                }) { Text("Cancel") }
             }
         )
     }
@@ -324,7 +460,17 @@ fun AssistantScreen(onBack: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(messages) { message -> MessageBubble(message, onRemember = { memoryTarget = it }) }
+            items(messages) { message -> MessageBubble(message, onRemember = {
+                val sensitivity = MemorySensitivityClassifier.classify(it)
+                memoryCategory = MemoryCategory.FACT
+                if (sensitivity.requiresExplicitChoice) {
+                    sensitiveMemoryTarget = it
+                    sensitiveMemoryResult = sensitivity
+                    status = if (sensitivity.shouldBlockPersistence) "Sensitive memory blocked." else "Awaiting sensitive-memory confirmation."
+                } else {
+                    memoryTarget = it
+                }
+            }) }
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -356,16 +502,40 @@ fun AssistantScreen(onBack: () -> Unit) {
                         val model = activeModel
                         if (text.isEmpty() || busy || model == null) return@Button
 
-                        // Explicit exact-memory commands are handled by the app layer.
-                        // They are never sent to the model as ordinary chat messages and
-                        // are never stored until the user confirms the preview.
                         val exactRequest = MemoryIntentParser.parse(rawText)
                         if (exactRequest != null) {
-                            exactMemoryTarget = exactRequest.text
-                            memoryCategory = MemoryCategory.FACT
-                            exactMemoryMenuExpanded = false
+                            val sensitivity = MemorySensitivityClassifier.classify(exactRequest.text)
+                            if (sensitivity.shouldBlockPersistence) {
+                                sensitiveMemoryTarget = exactRequest.text
+                                sensitiveMemoryResult = sensitivity
+                                status = "Sensitive memory blocked."
+                            } else {
+                                exactMemoryTarget = exactRequest.text
+                                memoryCategory = MemoryCategory.FACT
+                                exactMemoryMenuExpanded = false
+                                status = if (sensitivity.requiresExplicitChoice) "Sensitive exact-memory confirmation required." else "Awaiting exact-memory confirmation."
+                            }
                             input = ""
-                            status = "Awaiting exact-memory confirmation."
+                            return@Button
+                        }
+
+                        val replacementRequest = MemoryIntentParser.parseSealedReplacement(rawText)
+                        if (replacementRequest != null) {
+                            input = ""
+                            when (val resolution = replacementResolver.resolve(replacementRequest)) {
+                                is SealedMemoryReplacementResolution.Ready -> {
+                                    val sensitivity = MemorySensitivityClassifier.classify(resolution.replacementText)
+                                    if (sensitivity.shouldBlockPersistence) {
+                                        status = "Replacement blocked because the new value is too sensitive to store as long-term memory."
+                                    } else {
+                                        replacementResolution = resolution
+                                        status = if (sensitivity.requiresExplicitChoice) "Sensitive replacement confirmation required." else "Awaiting sealed-memory replacement confirmation."
+                                    }
+                                }
+                                is SealedMemoryReplacementResolution.NotFound -> status = "No sealed memory matched that exact previous text."
+                                is SealedMemoryReplacementResolution.Ambiguous -> status = "Replacement refused: ${resolution.matchCount} sealed memories match that exact text."
+                                is SealedMemoryReplacementResolution.InvalidReplacement -> status = "Replacement is invalid or exceeds ${resolution.maxCharacters} characters."
+                            }
                             return@Button
                         }
 
