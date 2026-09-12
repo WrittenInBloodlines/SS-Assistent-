@@ -97,22 +97,30 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
 
     override fun generateStream(messages: List<ChatMessage>, settings: GenerationSettings): Flow<RuntimeResult> = flow {
         /*
-         * Kotlin forbids suspension points such as emit/collect inside
-         * ReentrantLock.withLock. Keep the complete native generation in the
-         * critical section, buffer its tokens, unlock, then emit once. This
-         * preserves native lifecycle safety and avoids the Run 23 compiler error.
+         * The native engine must remain locked for the entire decode operation
+         * so load/free cannot race with native inference. ReentrantLock.withLock
+         * is inline and therefore rejects suspension points such as collect.
+         * Use explicit lock/unlock instead, with finally guaranteeing release
+         * on normal completion, cancellation, or an exception.
+         *
+         * Tokens are buffered and emitted after native inference finishes. The
+         * AssistantScreen still receives the complete result through the Flow,
+         * while the native engine remains protected for the whole operation.
          */
         val result = withContext(Dispatchers.Default) {
-            nativeLock.withLock {
-                val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
-                if (messages.isEmpty()) return@withLock RuntimeResult.Error("There is no message to generate a response to.")
+            nativeLock.lock()
+            try {
+                val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
+                if (messages.isEmpty()) {
+                    return@withContext RuntimeResult.Error("There is no message to generate a response to.")
+                }
                 try {
                     val prompt = activeEngine.formatChat(
                         messages = messages.map { NativeChatMessage(it.role, it.content) },
                         enableThinking = false,
                     )
                     if (activeEngine.tokenize(prompt).size >= contextTokens - 32) {
-                        return@withLock RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
+                        return@withContext RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
                     }
                     val output = StringBuilder()
                     activeEngine.decode(prompt, samplingParams(settings)).collect { token ->
@@ -127,6 +135,8 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     unloadLocked()
                     RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried.")
                 }
+            } finally {
+                nativeLock.unlock()
             }
         }
         emit(result)
