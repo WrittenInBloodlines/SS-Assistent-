@@ -55,9 +55,10 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Mark sealed memories clearly in the Memory UI and require an explicit replacement to change their contents
 - [x] Add category-specific Forget controls
 - [x] Add deterministic natural-language detection for explicit requests such as "save this exactly as written" / "store this exactly"
-- [ ] Route the detected exact-memory intent directly through the chat send flow
-- [ ] When exact/sealed memory is requested, show a confirmation preview and clearly state that the text will be stored exactly as supplied
-- [ ] Guarantee that sealed memory retrieval does not paraphrase, summarize, shorten or silently rewrite the stored value
+- [x] Route detected exact-memory intent directly through the chat send flow
+- [x] When exact/sealed memory is requested, show a confirmation preview and clearly state that the text will be stored exactly as supplied
+- [x] Prioritize sealed memory during retrieval and label it as exact/sealed in the model prompt
+- [x] Enforce the exact-memory size limit at the storage layer
 - [x] Provide a sealed-memory replacement primitive that requires an explicit override and preserves the replacement exactly
 - [ ] If a user explicitly requests a change to a sealed memory, apply only the requested change and preserve every other character/content exactly
 - [ ] Add a dedicated memory version/history trail so exact replacements can be reviewed safely
