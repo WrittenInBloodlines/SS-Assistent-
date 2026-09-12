@@ -37,7 +37,7 @@ class LlamaAssistantRuntime : AssistantRuntime {
                 nCtx = 4096,
                 nThreads = 0,
                 kvCacheType = "q8_0",
-                flashAttn = "auto",
+                flashAttn = null,
             )
             engine = newEngine
             loadedModelPath = model.path
