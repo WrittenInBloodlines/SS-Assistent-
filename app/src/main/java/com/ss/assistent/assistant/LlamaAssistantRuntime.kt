@@ -1,5 +1,6 @@
 package com.ss.assistent.assistant
 
+import android.content.Context
 import com.ss.assistent.model.ModelInfo
 import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
@@ -15,9 +16,10 @@ import java.io.File
  * The UI still talks to AssistantRuntime, so the native engine remains isolated
  * from the rest of the assistant architecture.
  */
-class LlamaAssistantRuntime : AssistantRuntime {
+class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     private var engine: LlamaEngine? = null
     private var loadedModelPath: String? = null
+    private var contextTokens: Int = 4096
 
     override suspend fun load(model: ModelInfo): RuntimeResult = withContext(Dispatchers.Default) {
         if (!File(model.path).exists()) {
@@ -28,13 +30,18 @@ class LlamaAssistantRuntime : AssistantRuntime {
             return@withContext RuntimeResult.Success("Model already loaded.")
         }
 
+        when (val diagnostic = ModelDiagnostics.inspect(context, model)) {
+            is DiagnosticResult.Error -> return@withContext RuntimeResult.Error(diagnostic.message)
+            is DiagnosticResult.Ready -> contextTokens = diagnostic.contextTokens
+        }
+
         try {
             engine?.free()
             val newEngine = LlamaEngine()
             newEngine.load(
                 path = model.path,
                 nGpuLayers = 0,
-                nCtx = 4096,
+                nCtx = contextTokens,
                 nThreads = 0,
                 kvCacheType = "q8_0",
                 flashAttn = null,
@@ -72,6 +79,13 @@ class LlamaAssistantRuntime : AssistantRuntime {
                 enableThinking = false,
             )
 
+            val promptTokens = activeEngine.tokenize(prompt).size
+            if (promptTokens >= contextTokens - 32) {
+                return@withContext RuntimeResult.Error(
+                    "The conversation is too long for the current local context window. Clear the conversation and try again."
+                )
+            }
+
             val output = StringBuilder()
             val params = SamplingParams(
                 nPredict = maxTokens.coerceIn(32, 1024),
@@ -108,6 +122,7 @@ class LlamaAssistantRuntime : AssistantRuntime {
         engine?.free()
         engine = null
         loadedModelPath = null
+        contextTokens = 4096
     }
 
     override fun isLoaded(): Boolean = engine != null
