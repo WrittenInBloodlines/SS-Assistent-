@@ -68,7 +68,8 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Add a deterministic sensitivity classifier for memory candidates
 - [x] Route sensitive memory candidates through an explicit user-choice policy in the save UI
 - [x] Avoid storing sensitive information unless the user explicitly chooses to remember it
-- [ ] Add local encrypted storage where appropriate
+- [x] Encrypt persisted memory and sealed-memory history with Android Keystore-backed AES-GCM
+- [x] Migrate legacy plaintext memory/history payloads into encrypted storage on first successful read
 - [ ] Add stronger semantic memory retrieval when the local architecture supports it
 
 ## Phase 3B — Story, lore and continuity intelligence
