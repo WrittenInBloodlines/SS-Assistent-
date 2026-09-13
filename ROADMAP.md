@@ -122,9 +122,9 @@ This is designed primarily for story/character work. The assistant should not tr
 
 The model should propose actions; Android code should execute them through explicit, visible mechanisms. App integrations must respect Android permissions, each app's APIs, and the user's control.
 
-- [x] Action planner separate from the language model
-- [x] Permission manager with per-capability controls
-- [x] Activity / action history
+- [ ] Action planner separate from the language model
+- [ ] Permission manager with per-capability controls
+- [ ] Activity / action history
 - [ ] Open installed apps through Android intents where supported
 - [ ] Open Google Docs and other supported document apps
 - [ ] Add supported text insertion workflows
