@@ -45,7 +45,10 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     nGpuLayers = 0,
                     nCtx = contextTokens,
                     nThreads = 0,
-                    kvCacheType = "q8_0",
+                    // Keep the KV cache on llama.cpp's default path while the
+                    // native crash is being isolated. This avoids an additional
+                    // quantized-cache execution path on the affected device.
+                    kvCacheType = null,
                     flashAttn = null,
                 )
                 engine = newEngine
@@ -96,16 +99,10 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
 
     override fun generateStream(messages: List<ChatMessage>, settings: GenerationSettings): Flow<RuntimeResult> = flow {
         /*
-         * SS-Story-AI's stable runtime does not drive generation through a
-         * second low-level decode stream. It uses its higher-level inference
-         * call and receives generated tokens from that call. The direct
-         * llama.kt completion() API is the equivalent stable path here.
-         *
-         * The previous implementation used decode(...).collect while holding
-         * the native lock. That made the streaming path different from the
-         * already-working generate() path and exposed another native execution
-         * route. Keep generation on one native API path and emit only after the
-         * native operation has completed.
+         * Keep the chat path on the same completion() API used by generate().
+         * The previous implementation used decode(...).collect, which created
+         * a separate native execution route and was removed after the device
+         * showed an immediate native crash.
          */
         val result = withContext(Dispatchers.Default) {
             nativeLock.lock()
@@ -154,7 +151,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     }
 
     private fun samplingParams(settings: GenerationSettings): SamplingParams = SamplingParams(
-        nPredict = settings.maxTokens.coerceIn(32, 1024),
+        nPredict = settings.maxTokens.coerceIn(32, 512),
         temperature = settings.temperature.coerceIn(0.1f, 1.5f),
         topK = settings.topK.coerceIn(1, 100),
         topP = settings.topP.coerceIn(0.1f, 1.0f),
