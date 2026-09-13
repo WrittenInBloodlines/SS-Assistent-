@@ -6,7 +6,6 @@ import com.ss.assistent.settings.GenerationSettings
 import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
 import com.tensai.llamakt.SamplingParams
-import com.tensai.llamakt.decode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -97,15 +96,16 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
 
     override fun generateStream(messages: List<ChatMessage>, settings: GenerationSettings): Flow<RuntimeResult> = flow {
         /*
-         * The native engine must remain locked for the entire decode operation
-         * so load/free cannot race with native inference. ReentrantLock.withLock
-         * is inline and therefore rejects suspension points such as collect.
-         * Use explicit lock/unlock instead, with finally guaranteeing release
-         * on normal completion, cancellation, or an exception.
+         * SS-Story-AI's stable runtime does not drive generation through a
+         * second low-level decode stream. It uses its higher-level inference
+         * call and receives generated tokens from that call. The direct
+         * llama.kt completion() API is the equivalent stable path here.
          *
-         * Tokens are buffered and emitted after native inference finishes. The
-         * AssistantScreen still receives the complete result through the Flow,
-         * while the native engine remains protected for the whole operation.
+         * The previous implementation used decode(...).collect while holding
+         * the native lock. That made the streaming path different from the
+         * already-working generate() path and exposed another native execution
+         * route. Keep generation on one native API path and emit only after the
+         * native operation has completed.
          */
         val result = withContext(Dispatchers.Default) {
             nativeLock.lock()
@@ -122,13 +122,24 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     if (activeEngine.tokenize(prompt).size >= contextTokens - 32) {
                         return@withContext RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
                     }
+
                     val output = StringBuilder()
-                    activeEngine.decode(prompt, samplingParams(settings)).collect { token ->
-                        if (token.isNotEmpty()) output.append(token)
+                    val sampledTokens = activeEngine.completion(
+                        prompt = prompt,
+                        params = samplingParams(settings),
+                        callback = com.tensai.llamakt.TokenCallback { token ->
+                            if (token.isNotEmpty()) output.append(token)
+                        },
+                    )
+
+                    if (sampledTokens < 0) {
+                        unloadLocked()
+                        RuntimeResult.Error("Local inference failed. The model was unloaded so it can be reloaded safely on the next attempt.")
+                    } else {
+                        val text = output.toString().trim()
+                        if (text.isEmpty()) RuntimeResult.Error("The model finished without producing a response.")
+                        else RuntimeResult.Success(text)
                     }
-                    val text = output.toString().trim()
-                    if (text.isEmpty()) RuntimeResult.Error("The model finished without producing a response.")
-                    else RuntimeResult.Success(text)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
