@@ -37,7 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.model.ModelRepository
-import com.ss.assistent.ui.screens.ActionsScreen
 import com.ss.assistent.ui.screens.AssistantScreen
 import com.ss.assistent.ui.screens.ContinuityScreen
 import com.ss.assistent.ui.screens.ConversationToolsScreen
@@ -54,7 +53,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Actions, Settings }
+private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Settings }
 
 @Composable
 private fun SSAssistentApp() {
@@ -66,7 +65,6 @@ private fun SSAssistentApp() {
             onConversation = { screen = AppScreen.Conversation },
             onMemory = { screen = AppScreen.Memory },
             onContinuity = { screen = AppScreen.Continuity },
-            onActions = { screen = AppScreen.Actions },
             onSettings = { screen = AppScreen.Settings }
         )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
@@ -74,7 +72,6 @@ private fun SSAssistentApp() {
         AppScreen.Conversation -> ConversationToolsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Memory -> MemoryScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Continuity -> ContinuityScreen(onBack = { screen = AppScreen.Home })
-        AppScreen.Actions -> ActionsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Settings -> SettingsScreen(onBack = { screen = AppScreen.Home })
     }
 }
@@ -86,7 +83,6 @@ private fun HomeScreen(
     onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
-    onActions: () -> Unit,
     onSettings: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -101,9 +97,8 @@ private fun HomeScreen(
         ) {
             item { Header() }
             item { ModelCard(activeModel?.name, modelCount, onModels) }
-            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onActions, onSettings) }
+            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onSettings) }
             item { ActivityCard() }
-            item { PermissionCard() }
         }
     }
 }
@@ -145,7 +140,6 @@ private fun QuickActions(
     onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
-    onActions: () -> Unit,
     onSettings: () -> Unit
 ) {
     Column {
@@ -163,7 +157,7 @@ private fun QuickActions(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("▤", "Conversation", Modifier.weight(1f), onConversation)
-            ActionCard("⚡", "Actions", Modifier.weight(1f), onActions)
+            Spacer(Modifier.weight(1f))
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -188,22 +182,11 @@ private fun ActionCard(icon: String, title: String, modifier: Modifier, onClick:
 private fun ActivityCard() {
     Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(20.dp)) {
-            SectionTitle("Recent activity")
+            SectionTitle("Current focus")
             Spacer(Modifier.height(14.dp))
-            Text("Action history is now available", fontWeight = FontWeight.SemiBold)
+            Text("Local AI stability", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Text("Open Actions to plan capabilities, review confirmation boundaries, and inspect the local action history.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
-        }
-    }
-}
-
-@Composable
-private fun PermissionCard() {
-    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))) {
-        Column(Modifier.padding(20.dp)) {
-            Text("You stay in control", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(Modifier.height(7.dp))
-            Text("Actions are planned separately from the model. Capability switches are off by default, and important actions will require explicit confirmation.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+            Text("Device actions and app integrations are paused while the local model runtime is being stabilized.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
