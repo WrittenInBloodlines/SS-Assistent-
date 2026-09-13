@@ -72,6 +72,12 @@ Memory must be structured and useful rather than simply dumping the entire chat 
 - [x] Migrate legacy plaintext memory/history payloads into encrypted storage on first successful read
 - [x] Add stronger semantic-ish memory retrieval using deterministic offline token normalization, conservative stemming, phrase matching and a small multilingual synonym map
 - [x] Add local vector semantic retrieval without requiring a second neural model, network access, or unencrypted memory data
+- [ ] Detect when the current chat is becoming too long and show a clear choice to start a new chat or continue the current one
+- [ ] If the user chooses to continue, leave the current chat unchanged and keep writing normally
+- [ ] If the user starts a new chat from the warning, automatically create a compact summary of the complete previous chat and store it as linked conversation memory
+- [ ] Organize linked chats into user-manageable chat subfolders so related conversations can share their remembered context
+- [ ] When a new chat belongs to a linked chat group, retrieve the previous chat summaries from that group when relevant so the assistant can answer questions such as "Do you still remember what we discussed?"
+- [ ] Preserve the distinction between normal long-term memory and linked-chat history summaries so old conversation context can be retrieved without dumping entire old chats into every prompt
 
 ## Phase 3B — Story, lore and continuity intelligence
 
