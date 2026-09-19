@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
  * incompatible inputs without pretending to predict exact device performance.
  */
 object ModelDiagnostics {
-    const val DEFAULT_CONTEXT_TOKENS = 4096
+    const val DEFAULT_CONTEXT_TOKENS = 2048
     private const val MIN_AVAILABLE_MEMORY_BYTES = 900L * 1024L * 1024L
 
     fun inspect(context: Context, model: ModelInfo): DiagnosticResult {
