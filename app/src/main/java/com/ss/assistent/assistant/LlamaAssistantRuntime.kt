@@ -44,7 +44,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     path = model.path,
                     nGpuLayers = 0,
                     nCtx = contextTokens,
-                    nThreads = 0,
+                    nThreads = 4,
                     // Keep the KV cache on llama.cpp's default path while the
                     // native crash is being isolated. This avoids an additional
                     // quantized-cache execution path on the affected device.
@@ -151,7 +151,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     }
 
     private fun samplingParams(settings: GenerationSettings): SamplingParams = SamplingParams(
-        nPredict = settings.maxTokens.coerceIn(32, 512),
+        nPredict = settings.maxTokens.coerceIn(32, 256),
         temperature = settings.temperature.coerceIn(0.1f, 1.5f),
         topK = settings.topK.coerceIn(1, 100),
         topP = settings.topP.coerceIn(0.1f, 1.0f),
