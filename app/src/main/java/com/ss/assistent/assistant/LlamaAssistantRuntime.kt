@@ -17,14 +17,13 @@ import kotlin.concurrent.withLock
 
 /** Real on-device GGUF runtime backed by llama.cpp through llama.kt. */
 class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
-    /** Serializes every native engine load, generation and cleanup operation. */
     private val nativeLock = ReentrantLock()
 
     private var engine: LlamaEngine? = null
     private var loadedModelPath: String? = null
     private var contextTokens: Int = ModelDiagnostics.DEFAULT_CONTEXT_TOKENS
 
-    override suspend fun load(model: ModelInfo): RuntimeResult = withContext(Dispatchers.Default) {
+    override suspend fun load(model: ModelInfo): RuntimeResult = withContext(Dispatchers.IO) {
         nativeLock.withLock {
             if (!File(model.path).exists()) {
                 unloadLocked()
@@ -39,20 +38,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             }
             try {
                 unloadLocked()
-                val newEngine = LlamaEngine()
-                newEngine.load(
-                    path = model.path,
-                    nGpuLayers = 0,
-                    nCtx = contextTokens,
-                    nThreads = 4,
-                    // Keep the KV cache on llama.cpp's default path while the
-                    // native crash is being isolated. This avoids an additional
-                    // quantized-cache execution path on the affected device.
-                    kvCacheType = null,
-                    flashAttn = null,
-                )
-                engine = newEngine
-                loadedModelPath = model.path
+                loadNativeModelLocked(model.path)
                 RuntimeResult.Success("Model loaded.")
             } catch (error: Throwable) {
                 unloadLocked()
@@ -62,11 +48,14 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     }
 
     override suspend fun generate(messages: List<ChatMessage>, settings: GenerationSettings): RuntimeResult =
-        withContext(Dispatchers.Default) {
+        withContext(Dispatchers.IO) {
             nativeLock.withLock {
-                val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
                 if (messages.isEmpty()) return@withLock RuntimeResult.Error("There is no message to generate a response to.")
                 try {
+                    if (!reloadNativeModelLocked()) {
+                        return@withLock RuntimeResult.Error("The local model could not be reloaded safely for inference.")
+                    }
+                    val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
                     val prompt = activeEngine.formatChat(
                         messages = messages.map { NativeChatMessage(it.role, it.content) },
                         enableThinking = false,
@@ -98,20 +87,23 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         }
 
     override fun generateStream(messages: List<ChatMessage>, settings: GenerationSettings): Flow<RuntimeResult> = flow {
-        /*
-         * Keep the chat path on the same completion() API used by generate().
-         * The previous implementation used decode(...).collect, which created
-         * a separate native execution route and was removed after the device
-         * showed an immediate native crash.
-         */
-        val result = withContext(Dispatchers.Default) {
+        val result = withContext(Dispatchers.IO) {
             nativeLock.lock()
             try {
-                val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
                 if (messages.isEmpty()) {
                     return@withContext RuntimeResult.Error("There is no message to generate a response to.")
                 }
                 try {
+                    /*
+                     * llama.cpp keeps prompt/KV state inside the native engine.
+                     * Rebuild the engine before every request, following the
+                     * reset strategy that stabilized repeated generations in
+                     * SS-Story-AI. SS-Story-AI itself is not modified.
+                     */
+                    if (!reloadNativeModelLocked()) {
+                        return@withContext RuntimeResult.Error("The local model could not be reloaded safely for inference.")
+                    }
+                    val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
                     val prompt = activeEngine.formatChat(
                         messages = messages.map { NativeChatMessage(it.role, it.content) },
                         enableThinking = false,
@@ -157,6 +149,50 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         topP = settings.topP.coerceIn(0.1f, 1.0f),
         minP = 0.05f,
     )
+
+    private fun reloadNativeModelLocked(): Boolean {
+        val path = loadedModelPath ?: return false
+        val file = File(path)
+        if (!file.exists() || !file.isFile || !file.canRead()) return false
+
+        return try {
+            engine?.free()
+            engine = null
+            loadNativeModelLocked(path)
+            true
+        } catch (_: Throwable) {
+            try {
+                engine?.free()
+            } catch (_: Throwable) {
+            }
+            engine = null
+            loadedModelPath = null
+            false
+        }
+    }
+
+    /** Must only be called while [nativeLock] is held. */
+    private fun loadNativeModelLocked(path: String) {
+        val newEngine = LlamaEngine()
+        try {
+            newEngine.load(
+                path = path,
+                nGpuLayers = 0,
+                nCtx = contextTokens,
+                nThreads = 4,
+                kvCacheType = null,
+                flashAttn = "off",
+            )
+            engine = newEngine
+            loadedModelPath = path
+        } catch (error: Throwable) {
+            try {
+                newEngine.free()
+            } catch (_: Throwable) {
+            }
+            throw error
+        }
+    }
 
     override fun unload() {
         nativeLock.withLock { unloadLocked() }
