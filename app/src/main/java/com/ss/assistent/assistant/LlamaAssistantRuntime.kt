@@ -56,17 +56,12 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                         return@withLock RuntimeResult.Error("The local model could not be reloaded safely for inference.")
                     }
                     val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
-                    val prompt = activeEngine.formatChat(
-                        messages = messages.map { NativeChatMessage(it.role, it.content) },
-                        enableThinking = false,
-                    )
-                    if (activeEngine.tokenize(prompt).size >= contextTokens - 32) {
-                        return@withLock RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
-                    }
+                    val prompt = preparePrompt(activeEngine, messages, smokeTest = true)
+                        ?: return@withLock RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
                     val output = StringBuilder()
                     val sampledTokens = activeEngine.completion(
                         prompt = prompt,
-                        params = samplingParams(settings),
+                        params = samplingParams(settings, smokeTest = true),
                         callback = com.tensai.llamakt.TokenCallback { token -> output.append(token) },
                     )
                     if (sampledTokens < 0) {
@@ -104,18 +99,13 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                         return@withContext RuntimeResult.Error("The local model could not be reloaded safely for inference.")
                     }
                     val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
-                    val prompt = activeEngine.formatChat(
-                        messages = messages.map { NativeChatMessage(it.role, it.content) },
-                        enableThinking = false,
-                    )
-                    if (activeEngine.tokenize(prompt).size >= contextTokens - 32) {
-                        return@withContext RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
-                    }
+                    val prompt = preparePrompt(activeEngine, messages, smokeTest = true)
+                        ?: return@withContext RuntimeResult.Error("The conversation is too long for the current local context window. Clear the conversation and try again.")
 
                     val output = StringBuilder()
                     val sampledTokens = activeEngine.completion(
                         prompt = prompt,
-                        params = samplingParams(settings),
+                        params = samplingParams(settings, smokeTest = true),
                         callback = com.tensai.llamakt.TokenCallback { token ->
                             if (token.isNotEmpty()) output.append(token)
                         },
@@ -142,13 +132,73 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         emit(result)
     }
 
-    private fun samplingParams(settings: GenerationSettings): SamplingParams = SamplingParams(
-        nPredict = settings.maxTokens.coerceIn(32, 256),
+    /*
+     * Temporary diagnostic mode: every chat generation is intentionally capped
+     * at 8 output tokens. This isolates native inference from long generation.
+     * Once the device test passes, set smokeTest=false in the two calls above.
+     */
+    private fun samplingParams(
+        settings: GenerationSettings,
+        smokeTest: Boolean = false,
+    ): SamplingParams = SamplingParams(
+        nPredict = if (smokeTest) 8 else settings.maxTokens.coerceIn(32, 256),
         temperature = settings.temperature.coerceIn(0.1f, 1.5f),
         topK = settings.topK.coerceIn(1, 100),
         topP = settings.topP.coerceIn(0.1f, 1.0f),
         minP = 0.05f,
     )
+
+    /**
+     * Keeps the system prompt and newest user message, then drops the oldest
+     * conversation messages until prompt + generation fit inside nCtx.
+     */
+    private fun preparePrompt(
+        activeEngine: LlamaEngine,
+        messages: List<ChatMessage>,
+        smokeTest: Boolean,
+    ): String? {
+        if (messages.isEmpty()) return null
+
+        val mapped = messages.map { NativeChatMessage(it.role, it.content) }
+        val systemIndex = mapped.indexOfFirst { it.role == "system" }
+        val newestUserIndex = mapped.indexOfLast { it.role == "user" }
+
+        val system = mapped.getOrNull(systemIndex)
+        val newestUser = mapped.getOrNull(newestUserIndex)
+
+        val middle = mapped.filterIndexed { index, _ ->
+            index != systemIndex && index != newestUserIndex
+        }.toMutableList()
+
+        val outputTokens = if (smokeTest) 8 else 256
+        val maxPromptTokens = (contextTokens - outputTokens - 32).coerceAtLeast(64)
+
+        fun format(candidate: List<NativeChatMessage>): Pair<String, Int> {
+            val prompt = activeEngine.formatChat(candidate, enableThinking = false)
+            return prompt to activeEngine.tokenize(prompt).size
+        }
+
+        val initial = format(mapped)
+        if (initial.second <= maxPromptTokens) return initial.first
+
+        while (middle.isNotEmpty()) {
+            middle.removeAt(0)
+            val candidate = buildList {
+                if (system != null) add(system)
+                addAll(middle)
+                if (newestUser != null) add(newestUser)
+            }
+            val formatted = format(candidate)
+            if (formatted.second <= maxPromptTokens) return formatted.first
+        }
+
+        val protected = buildList {
+            if (system != null) add(system)
+            if (newestUser != null && newestUserIndex != systemIndex) add(newestUser)
+        }
+        val formatted = format(protected)
+        return formatted.first.takeIf { formatted.second <= maxPromptTokens }
+    }
 
     private fun reloadNativeModelLocked(): Boolean {
         val path = loadedModelPath ?: return false
