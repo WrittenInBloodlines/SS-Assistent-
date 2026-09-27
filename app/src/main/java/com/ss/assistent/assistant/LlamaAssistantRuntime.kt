@@ -3,7 +3,6 @@ package com.ss.assistent.assistant
 import android.content.Context
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.settings.GenerationSettings
-import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
 import com.tensai.llamakt.SamplingParams
 import kotlinx.coroutines.CancellationException
@@ -52,14 +51,15 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             nativeLock.withLock {
                 if (messages.isEmpty()) return@withLock RuntimeResult.Error("There is no message to generate a response to.")
                 try {
-                    if (!reloadNativeModelLocked()) {
-                        return@withLock RuntimeResult.Error("The local model could not be reloaded safely for inference.")
-                    }
-                    val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
-                    val prompt = RAW_SMOKE_PROMPT
+                    // The model is already loaded before generation. Reloading a
+                    // multi-GB GGUF here can create a second native allocation
+                    // while the old allocation is being released, which is
+                    // unsafe on memory-constrained Android devices.
+                    val activeEngine = engine
+                        ?: return@withLock RuntimeResult.Error("No local model is loaded.")
                     val output = StringBuilder()
                     val sampledTokens = activeEngine.completion(
-                        prompt = prompt,
+                        prompt = RAW_SMOKE_PROMPT,
                         params = smokeTestParams(),
                         callback = com.tensai.llamakt.TokenCallback { token -> output.append(token) },
                     )
@@ -88,21 +88,15 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     return@withContext RuntimeResult.Error("There is no message to generate a response to.")
                 }
                 try {
-                    /*
-                     * llama.cpp keeps prompt/KV state inside the native engine.
-                     * Rebuild the engine before every request, following the
-                     * reset strategy that stabilized repeated generations in
-                     * SS-Story-AI. SS-Story-AI itself is not modified.
-                     */
-                    if (!reloadNativeModelLocked()) {
-                        return@withContext RuntimeResult.Error("The local model could not be reloaded safely for inference.")
-                    }
-                    val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
-                    val prompt = RAW_SMOKE_PROMPT
-
+                    // Keep the already-loaded native engine alive for the
+                    // request. LlamaEngine.completion() rewinds the native
+                    // completion state itself, so rebuilding the engine for
+                    // every message is unnecessary and memory-expensive.
+                    val activeEngine = engine
+                        ?: return@withContext RuntimeResult.Error("No local model is loaded.")
                     val output = StringBuilder()
                     val sampledTokens = activeEngine.completion(
-                        prompt = prompt,
+                        prompt = RAW_SMOKE_PROMPT,
                         params = smokeTestParams(),
                         callback = com.tensai.llamakt.TokenCallback { token ->
                             if (token.isNotEmpty()) output.append(token)
@@ -130,11 +124,6 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         emit(result)
     }
 
-    /*
-     * Absolute-minimum native diagnostic: bypass chat templates and the
-     * conversation entirely. If this still crashes, the failure is below
-     * the app's chat/prompt logic.
-     */
     private fun smokeTestParams(): SamplingParams = SamplingParams(
         nPredict = 8,
         temperature = 0.7f,
@@ -147,28 +136,6 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         const val RAW_SMOKE_PROMPT = "Hello."
     }
 
-    private fun reloadNativeModelLocked(): Boolean {
-        val path = loadedModelPath ?: return false
-        val file = File(path)
-        if (!file.exists() || !file.isFile || !file.canRead()) return false
-
-        return try {
-            engine?.free()
-            engine = null
-            loadNativeModelLocked(path)
-            true
-        } catch (_: Throwable) {
-            try {
-                engine?.free()
-            } catch (_: Throwable) {
-            }
-            engine = null
-            loadedModelPath = null
-            false
-        }
-    }
-
-    /** Must only be called while [nativeLock] is held. */
     private fun loadNativeModelLocked(path: String) {
         val newEngine = LlamaEngine()
         try {
@@ -195,7 +162,6 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         nativeLock.withLock { unloadLocked() }
     }
 
-    /** Must only be called while [nativeLock] is held. */
     private fun unloadLocked() {
         try {
             engine?.free()
