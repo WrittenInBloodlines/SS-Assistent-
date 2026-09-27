@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.ss.assistent"
     compileSdk = 35
-    ndkVersion = "29.0.13113456"
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.ss.assistent"
