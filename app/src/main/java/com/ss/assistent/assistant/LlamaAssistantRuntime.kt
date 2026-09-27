@@ -56,21 +56,11 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                         return@withLock RuntimeResult.Error("The local model could not be reloaded safely for inference.")
                     }
                     val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
-                    val prompt = RAW_SMOKE_PROMPT
-                    val output = StringBuilder()
-                    val sampledTokens = activeEngine.completion(
-                        prompt = prompt,
-                        params = smokeTestParams(),
-                        callback = com.tensai.llamakt.TokenCallback { token -> output.append(token) },
-                    )
-                    if (sampledTokens < 0) {
-                        unloadLocked()
-                        RuntimeResult.Error("Local inference failed. The model was unloaded so it can be reloaded safely on the next attempt.")
-                    } else {
-                        val text = output.toString().trim()
-                        if (text.isEmpty()) RuntimeResult.Error("The model finished without producing a response.")
-                        else RuntimeResult.Success(text)
-                    }
+                    // Native diagnostic: stop before completion/decode. Tokenization still
+                    // crosses the JNI/native boundary, so this distinguishes a basic native
+                    // context/tokenizer failure from a crash specifically inside generation.
+                    val tokenCount = activeEngine.tokenize(RAW_SMOKE_PROMPT).size
+                    RuntimeResult.Success("Native tokenize test passed: $tokenCount tokens.")
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
@@ -98,25 +88,9 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                         return@withContext RuntimeResult.Error("The local model could not be reloaded safely for inference.")
                     }
                     val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
-                    val prompt = RAW_SMOKE_PROMPT
-
-                    val output = StringBuilder()
-                    val sampledTokens = activeEngine.completion(
-                        prompt = prompt,
-                        params = smokeTestParams(),
-                        callback = com.tensai.llamakt.TokenCallback { token ->
-                            if (token.isNotEmpty()) output.append(token)
-                        },
-                    )
-
-                    if (sampledTokens < 0) {
-                        unloadLocked()
-                        RuntimeResult.Error("Local inference failed. The model was unloaded so it can be reloaded safely on the next attempt.")
-                    } else {
-                        val text = output.toString().trim()
-                        if (text.isEmpty()) RuntimeResult.Error("The model finished without producing a response.")
-                        else RuntimeResult.Success(text)
-                    }
+                    // Same native diagnostic as generate(): do not enter completion/decode yet.
+                    val tokenCount = activeEngine.tokenize(RAW_SMOKE_PROMPT).size
+                    RuntimeResult.Success("Native tokenize test passed: $tokenCount tokens.")
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
