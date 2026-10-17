@@ -16,7 +16,8 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add streamed token output and generation cancellation
 - [x] Make assistant lifecycle cleanup cancellation-safe
 - [x] Add clearer GGUF model diagnostics in the Models screen
-- [ ] Build and run on a real arm64 Android device
+- [x] Build and run on a real arm64 Android device (Samsung Galaxy A52s 5G, Android 14)
+- [x] Validate `Qwen3-1.7B` Q4_K_M on the target phone; basic generation works, while open-ended factual answers still need quality improvements
 - [ ] Validate `Qwen3-4B-Q4_K_M.gguf` on the target phone
 - [x] Add runtime error recovery and safe model unload/reload handling
 
@@ -33,6 +34,24 @@ SS Assistent is being built as a real Android device assistant. The local langua
 - [x] Add generation controls for maximum response length, temperature, Top-K and Top-P
 - [x] Add conversation rename and export UI
 - [x] Wire advanced per-conversation generation profiles into the chat UI
+
+
+## Phase 2B — Optional, free online fact-checking
+
+The assistant must remain fully usable offline. Online fact-checking is an optional step that can be requested or enabled when a network connection is available. Do not require a paid AI API or a subscription; prefer public sources and free endpoints, respect their terms/rate limits, and clearly disclose when a check could not be completed.
+
+- [ ] Keep local chat and local GGUF inference working without network access
+- [ ] Add an optional fact-check action for factual answers, separate from normal generation
+- [ ] Add Android Internet permission and a small, maintainable HTTP client only when needed for the fact-check feature
+- [ ] Retrieve evidence from reliable public sources through free endpoints; start with a narrow prototype (for example, Wikimedia sources) rather than promising full-web coverage
+- [ ] Extract individual factual claims from an answer and compare each claim with retrieved source passages
+- [ ] Show source titles and links next to the claims they support or contradict
+- [ ] Use honest result states such as **Supported**, **Contradicted**, and **Not enough evidence**; never label a claim as verified solely because a search result exists
+- [ ] If sources are unavailable, rate-limited, conflicting or irrelevant, clearly report that the check is inconclusive and leave offline chat available
+- [ ] Do not send the full conversation or private memories to external services by default; send only the minimum query text needed for the user-requested check
+- [ ] Add a small local sanity-check layer for obvious malformed/nonsensical output, clearly distinguished from source-backed fact-checking
+- [ ] Add tests for supported, contradicted and inconclusive claims, plus offline/no-network and service-error cases
+- [ ] Document source coverage, privacy behavior, rate limits and the fact that automated fact-checking can still make mistakes
 
 ## Phase 3 — Real memory
 
