@@ -605,7 +605,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                                         val conversationContext = PromptContext.recentConversation(messages)
                                         var assistantIndex = -1
                                         val generationSettings = preferences.generationSettings()
-                                        val sentenceChecks = mutableListOf<Pair<Int, Int, kotlinx.coroutines.Deferred<String>>>()
+                                        val sentenceChecks = mutableListOf<Triple<Int, Int, kotlinx.coroutines.Deferred<String>>>()
                                         var checkedUntil = 0
 
                                         runtime.generateStream(
