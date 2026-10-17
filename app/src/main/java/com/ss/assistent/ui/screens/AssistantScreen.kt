@@ -734,7 +734,7 @@ private fun MessageBubble(
             if (!isUser && sources.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = onToggleSources) {
-                    Text(if (sourcesExpanded) "Hide ${sources.size} sources" else "${sources.size} sources checked • Tap to view")
+                    Text(if (sourcesExpanded) "Hide ${sources.size} sources" else "${sources.size} sources consulted • Tap to view")
                 }
                 if (sourcesExpanded) {
                     sources.forEach { source ->
