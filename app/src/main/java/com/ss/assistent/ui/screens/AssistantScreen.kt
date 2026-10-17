@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -44,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ss.assistent.assistant.ChatMessage
 import com.ss.assistent.assistant.LlamaAssistantRuntime
+import com.ss.assistent.assistant.OnlineAssistTools
+import com.ss.assistent.assistant.ResearchSource
 import com.ss.assistent.assistant.PromptContext
 import com.ss.assistent.assistant.RuntimeResult
 import com.ss.assistent.chat.ConversationRepository
@@ -58,8 +61,12 @@ import com.ss.assistent.memory.SealedMemoryReplacementResolver
 import com.ss.assistent.model.ModelInfo
 import com.ss.assistent.model.ModelRepository
 import com.ss.assistent.settings.AssistantPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +82,8 @@ fun AssistantScreen(onBack: () -> Unit) {
     val messages = remember {
         mutableStateListOf<ChatMessage>().apply { addAll(conversationRepository.loadMessages()) }
     }
+    val sourcesByAnswer = remember { mutableStateMapOf<String, List<ResearchSource>>() }
+    var expandedSourcesFor by remember { mutableStateOf<String?>(null) }
 
     var input by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Ready for local conversation.") }
@@ -460,7 +469,12 @@ fun AssistantScreen(onBack: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(messages) { message -> MessageBubble(message, onRemember = {
+            items(messages) { message -> MessageBubble(
+                message = message,
+                sources = if (message.role == "assistant") sourcesByAnswer[message.content].orEmpty() else emptyList(),
+                sourcesExpanded = expandedSourcesFor == message.content,
+                onToggleSources = { expandedSourcesFor = if (expandedSourcesFor == message.content) null else message.content },
+                onRemember = {
                 val sensitivity = MemorySensitivityClassifier.classify(it)
                 memoryCategory = MemoryCategory.FACT
                 if (sensitivity.requiresExplicitChoice) {
@@ -548,6 +562,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                         generationJob = scope.launch {
                             var generatedAssistantText = ""
                             var generationFailed = false
+                            var researchSources: List<ResearchSource> = emptyList()
                             try {
                                 when (val loadResult = runtime.load(model)) {
                                     is RuntimeResult.Error -> {
@@ -555,7 +570,25 @@ fun AssistantScreen(onBack: () -> Unit) {
                                         status = loadResult.message
                                     }
                                     is RuntimeResult.Success -> {
-                                        status = "Generating locally..."
+                                        var evidenceInstruction = ""
+                                        if (OnlineAssistTools.shouldResearch(text)) {
+                                            status = "Searching sources…"
+                                            try {
+                                                val research = withContext(Dispatchers.IO) { OnlineAssistTools.research(text) }
+                                                researchSources = research.sources
+                                                evidenceInstruction = if (research.evidenceText.isNotBlank()) {
+                                                    "\\n\\nONLINE SOURCE MATERIAL (retrieved for this question):\\n${research.evidenceText}\\nUse these passages as evidence, answer the user directly, distinguish evidence from uncertainty, and do not invent facts or claim sources support something they do not. Cite relevant source titles in the answer."
+                                                } else {
+                                                    "\\n\\nNo usable online sources were found. Be honest that this question could not be verified online; do not pretend to have checked sources."
+                                                }
+                                                status = if (researchSources.isEmpty()) "No sources found • answering locally" else "Found ${researchSources.size} sources • generating answer"
+                                            } catch (_: Exception) {
+                                                evidenceInstruction = "\\n\\nOnline source search failed. Answer from local knowledge only and clearly say the online check did not work; do not claim that sources were checked."
+                                                status = "Source search failed • answering locally"
+                                            }
+                                        } else {
+                                            status = "Generating locally…"
+                                        }
                                         val styleInstruction = when {
                                             preferences.responseStyle == com.ss.assistent.settings.ResponseStyle.CUSTOM && preferences.customStyleInstruction.isNotBlank() ->
                                                 "${preferences.responseStyle.instruction} Custom instruction: ${preferences.customStyleInstruction}"
@@ -567,11 +600,13 @@ fun AssistantScreen(onBack: () -> Unit) {
                                                 styleInstruction = styleInstruction,
                                                 memories = memoryRepository.getAll(),
                                                 query = text
-                                            )
+                                            ) + evidenceInstruction
                                         )
                                         val conversationContext = PromptContext.recentConversation(messages)
                                         var assistantIndex = -1
                                         val generationSettings = preferences.generationSettings()
+                                        val sentenceChecks = mutableListOf<Pair<Int, Int, kotlinx.coroutines.Deferred<String>>>()
+                                        var checkedUntil = 0
 
                                         runtime.generateStream(
                                             messages = listOf(system) + conversationContext,
@@ -580,6 +615,19 @@ fun AssistantScreen(onBack: () -> Unit) {
                                             when (chunk) {
                                                 is RuntimeResult.Success -> {
                                                     generatedAssistantText += chunk.text
+                                                    // Launch LanguageTool checks for completed sentences without pausing token generation.
+                                                    val completedSentences = Regex("""[^.!?]+[.!?]+""").findAll(generatedAssistantText).toList()
+                                                    completedSentences.forEach { match ->
+                                                        val start = match.range.first
+                                                        val endExclusive = match.range.last + 1
+                                                        if (endExclusive > checkedUntil && match.value.isNotBlank()) {
+                                                            checkedUntil = endExclusive
+                                                            val originalSentence = match.value
+                                                            sentenceChecks += Triple(start, endExclusive, async(Dispatchers.IO) {
+                                                                OnlineAssistTools.correctGermanSentence(originalSentence)
+                                                            })
+                                                        }
+                                                    }
                                                     if (assistantIndex == -1) {
                                                         assistantIndex = messages.size
                                                         messages.add(ChatMessage("assistant", generatedAssistantText))
@@ -598,7 +646,20 @@ fun AssistantScreen(onBack: () -> Unit) {
                                             generationFailed = true
                                             status = "The model produced no response."
                                         }
-                                        if (generatedAssistantText.isNotBlank()) conversationRepository.saveMessages(messages)
+                                        if (generatedAssistantText.isNotBlank()) {
+                                            // Apply completed sentence corrections from the end so offsets remain stable.
+                                            var correctedAnswer = generatedAssistantText
+                                            sentenceChecks.sortedByDescending { it.first }.forEach { (start, endExclusive, deferred) ->
+                                                val corrected = try { deferred.await() } catch (_: Exception) { generatedAssistantText.substring(start, endExclusive) }
+                                                if (start >= 0 && endExclusive <= correctedAnswer.length && corrected != generatedAssistantText.substring(start, endExclusive)) {
+                                                    correctedAnswer = correctedAnswer.substring(0, start) + corrected + correctedAnswer.substring(endExclusive)
+                                                }
+                                            }
+                                            generatedAssistantText = correctedAnswer
+                                            if (assistantIndex >= 0) messages[assistantIndex] = ChatMessage("assistant", generatedAssistantText)
+                                            if (researchSources.isNotEmpty()) sourcesByAnswer[generatedAssistantText] = researchSources
+                                            conversationRepository.saveMessages(messages)
+                                        }
                                         if (!generationFailed) status = "Ready"
                                     }
                                 }
@@ -617,7 +678,14 @@ fun AssistantScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, onRemember: (String) -> Unit) {
+private fun MessageBubble(
+    message: ChatMessage,
+    sources: List<ResearchSource>,
+    sourcesExpanded: Boolean,
+    onToggleSources: () -> Unit,
+    onRemember: (String) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isUser = message.role == "user"
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -633,6 +701,30 @@ private fun MessageBubble(message: ChatMessage, onRemember: (String) -> Unit) {
             }
             Spacer(Modifier.height(2.dp))
             Text(message.content, fontSize = 14.sp, lineHeight = 20.sp)
+            if (!isUser && sources.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onToggleSources) {
+                    Text(if (sourcesExpanded) "Hide ${sources.size} sources" else "${sources.size} sources checked • Tap to view")
+                }
+                if (sourcesExpanded) {
+                    sources.forEach { source ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text(source.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                if (source.snippet.isNotBlank()) Text(source.snippet, fontSize = 12.sp, lineHeight = 17.sp)
+                                TextButton(onClick = {
+                                    runCatching {
+                                        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(source.url)))
+                                    }
+                                }) { Text("Open source", fontSize = 11.sp) }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
