@@ -50,7 +50,8 @@ object OnlineAssistTools {
             .filter { it.isNotBlank() && it !in stopWords }
             .joinToString(" ")
             .ifBlank { query.trim() }
-        val encoded = URLEncoder.encode(terms, "UTF-8")
+        val searchTerms = if (Regex("(?i)vampir|vampire").containsMatchIn(terms)) "$terms folklore Mythologie -Roman -Buch -Film" else terms
+        val encoded = URLEncoder.encode(searchTerms, "UTF-8")
         val endpoint = URL(
             "https://de.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&format=json&srlimit=5&utf8=1"
         )
@@ -71,8 +72,8 @@ object OnlineAssistTools {
                     URLEncoder.encode(title.replace(' ', '_'), "UTF-8").replace("+", "%20")
                 sources += ResearchSource(title, snippet, pageUrl)
                 if (evidence.length < 6500) {
-                    evidence.append("Source: ").append(title).append("\\n")
-                        .append(snippet).append("\\nURL: ").append(pageUrl).append("\\n\\n")
+                    evidence.append("Source: ").append(title).append("\n")
+                        .append(snippet).append("\nURL: ").append(pageUrl).append("\n\n")
                 }
             }
         }
