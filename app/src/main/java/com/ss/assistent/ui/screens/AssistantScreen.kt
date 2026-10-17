@@ -606,6 +606,7 @@ fun AssistantScreen(onBack: () -> Unit) {
                                         var assistantIndex = -1
                                         val generationSettings = preferences.generationSettings()
                                         val sentenceChecks = mutableListOf<Triple<Int, Int, kotlinx.coroutines.Deferred<String>>>()
+                                        val liveSentenceCorrections = mutableMapOf<Int, Pair<String, String>>()
                                         var checkedUntil = 0
 
                                         runtime.generateStream(
@@ -623,16 +624,30 @@ fun AssistantScreen(onBack: () -> Unit) {
                                                         if (endExclusive > checkedUntil && match.value.isNotBlank()) {
                                                             checkedUntil = endExclusive
                                                             val originalSentence = match.value
-                                                            sentenceChecks += Triple(start, endExclusive, async(Dispatchers.IO) {
+                                                            val correctionTask = async(Dispatchers.IO) {
                                                                 OnlineAssistTools.correctGermanSentence(originalSentence)
-                                                            })
+                                                            }
+                                                            sentenceChecks += Triple(start, endExclusive, correctionTask)
+                                                            // Let spelling checks finish while the model continues generating the next sentence.
+                                                            scope.launch {
+                                                                val correctedSentence = runCatching { correctionTask.await() }.getOrDefault(originalSentence)
+                                                                if (correctedSentence != originalSentence) {
+                                                                    liveSentenceCorrections[start] = originalSentence to correctedSentence
+                                                                    if (assistantIndex >= 0) {
+                                                                        messages[assistantIndex] = ChatMessage(
+                                                                            "assistant",
+                                                                            applySentenceCorrections(generatedAssistantText, liveSentenceCorrections)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                     if (assistantIndex == -1) {
                                                         assistantIndex = messages.size
                                                         messages.add(ChatMessage("assistant", generatedAssistantText))
                                                     } else {
-                                                        messages[assistantIndex] = ChatMessage("assistant", generatedAssistantText)
+                                                        messages[assistantIndex] = ChatMessage("assistant", applySentenceCorrections(generatedAssistantText, liveSentenceCorrections))
                                                     }
                                                 }
                                                 is RuntimeResult.Error -> {
@@ -675,6 +690,21 @@ fun AssistantScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+private fun applySentenceCorrections(
+    originalText: String,
+    corrections: Map<Int, Pair<String, String>>
+): String {
+    var result = originalText
+    corrections.toSortedMap(compareByDescending { it }).forEach { (start, pair) ->
+        val (originalSentence, correctedSentence) = pair
+        val end = start + originalSentence.length
+        if (start >= 0 && end <= result.length && result.substring(start, end) == originalSentence) {
+            result = result.substring(0, start) + correctedSentence + result.substring(end)
+        }
+    }
+    return result
 }
 
 @Composable
