@@ -1,0 +1,143 @@
+name: Android APK Build
+
+on:
+  push:
+    branches:
+      - fix/low-memory-generation
+  pull_request:
+    branches:
+      - fix/llama-real-generation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository and llama.kt submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 12266719
+          accept-android-sdk-licenses: true
+          packages: platform-tools
+
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Disable unavailable optional GPU backends in pinned llama.kt
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("libs/llama.kt/llama-kt/src/main/cpp")
+          backend_tokens = (
+              "ggml-opencl", "ggml_opencl", "opencl_lib", "-lopencl", "opencl",
+              "lm_ggml_use_opencl", "ggml-vulkan", "ggml_vulkan",
+              "vulkan_lib", "lm_ggml_use_vulkan",
+          )
+
+          def remove_complete_commands(text: str) -> str:
+              """Remove only complete CMake commands for disabled backend definitions."""
+              command_names = {"set", "file", "find_library"}
+              result = []
+              index = 0
+              length = len(text)
+
+              while index < length:
+                  line_start = index == 0 or text[index - 1] == "\n"
+                  if line_start:
+                      cursor = index
+                      while cursor < length and text[cursor] in " \t":
+                          cursor += 1
+                      name_start = cursor
+                      while cursor < length and (text[cursor].isalnum() or text[cursor] == "_"):
+                          cursor += 1
+                      command_name = text[name_start:cursor].lower()
+
+                      if command_name in command_names:
+                          while cursor < length and text[cursor].isspace():
+                              cursor += 1
+                          if cursor < length and text[cursor] == "(":
+                              depth = 0
+                              end = cursor
+                              while end < length:
+                                  if text[end] == "(":
+                                      depth += 1
+                                  elif text[end] == ")":
+                                      depth -= 1
+                                      if depth == 0:
+                                          end += 1
+                                          break
+                                  end += 1
+                              command_text = text[name_start:end].lower()
+                              if any(token in command_text for token in backend_tokens):
+                                  index = end
+                                  while index < length and text[index] in " \t":
+                                      index += 1
+                                  if index < length and text[index] == "\n":
+                                      index += 1
+                                  continue
+
+                  result.append(text[index])
+                  index += 1
+
+              return "".join(result)
+
+          def remove_opencl_foreach_blocks(text: str) -> str:
+              """Remove the OpenCL kernel-generation foreach as one balanced block."""
+              pattern = re.compile(
+                  r"(?ms)^\s*foreach\s*\(\s*kernel\s*\$\{GGML_OPENCL_KERNELS\}\s*\).*?^\s*endforeach\s*\(\s*\)\s*\n?"
+              )
+              return pattern.sub("", text)
+
+          for cmake in root.rglob("CMakeLists.txt"):
+              original = cmake.read_text()
+              updated = remove_complete_commands(original)
+              updated = remove_opencl_foreach_blocks(updated)
+
+              # Remove disabled-backend entries line-by-line from multiline CMake commands.
+              # Keep surrounding CMake commands structurally intact.
+              kept_lines = []
+              for line in updated.splitlines(keepends=True):
+                  lowered = line.lower()
+                  if any(token in lowered for token in backend_tokens):
+                      continue
+                  kept_lines.append(line)
+              updated = "".join(kept_lines)
+
+              if updated != original:
+                  cmake.write_text(updated)
+          PY
+
+      - name: Build debug APK
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ss-assistent-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

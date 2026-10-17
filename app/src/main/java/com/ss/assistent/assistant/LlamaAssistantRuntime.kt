@@ -37,12 +37,13 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             if (engine != null && loadedModelPath == model.path) {
                 return@withLock RuntimeResult.Success("Model already loaded.")
             }
-            when (val diagnostic = ModelDiagnostics.inspect(context, model)) {
+            val diagnosedContextTokens = when (val diagnostic = ModelDiagnostics.inspect(context, model)) {
                 is DiagnosticResult.Error -> return@withLock RuntimeResult.Error(diagnostic.message)
-                is DiagnosticResult.Ready -> contextTokens = diagnostic.contextTokens
+                is DiagnosticResult.Ready -> diagnostic.contextTokens
             }
             try {
                 unloadLocked()
+                contextTokens = diagnosedContextTokens
                 loadNativeModelLocked(model.path)
                 RuntimeResult.Success("Model loaded.")
             } catch (error: CancellationException) {
@@ -68,23 +69,23 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                 }
                 val activeEngine = engine
                     ?: return@withLock RuntimeResult.Error("No local model is loaded.")
-                val prompt = activeEngine.formatChat(
-                    messages.map { NativeChatMessage(role = it.role, content = it.content) }
-                )
-                val output = StringBuilder()
+                val prompt = formatChatPrompt(activeEngine, messages)
+                val rawOutput = StringBuilder()
                 val sampledTokens = activeEngine.completion(
                     prompt = prompt,
                     params = samplingParams(settings),
-                    callback = TokenCallback { token -> output.append(token) },
+                    callback = TokenCallback { token -> rawOutput.append(token) },
                 )
+                val filter = ThinkBlockFilter()
+                val output = filter.push(rawOutput.toString()) + filter.finish()
                 when {
                     sampledTokens < 0 -> {
                         unloadLocked()
                         RuntimeResult.Error("Native text generation failed. The model was unloaded for safety.")
                     }
                     sampledTokens == 0 -> RuntimeResult.Error("The native model could not start text generation.")
-                    output.isBlank() -> RuntimeResult.Error("The model finished without producing a text response.")
-                    else -> RuntimeResult.Success(output.toString())
+                    output.isBlank() -> RuntimeResult.Error("The model finished without producing a visible text response.")
+                    else -> RuntimeResult.Success(output.trim())
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -124,20 +125,26 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                     }
                 activeEngineRef.set(activeEngine)
 
-                val prompt = activeEngine.formatChat(
-                    messages.map { NativeChatMessage(role = it.role, content = it.content) }
-                )
+                val prompt = formatChatPrompt(activeEngine, messages)
+                val thinkFilter = ThinkBlockFilter()
                 val sampledTokens = activeEngine.completion(
                     prompt = prompt,
                     params = samplingParams(settings),
                     callback = TokenCallback { token ->
-                        if (token.isNotEmpty() &&
-                            trySend(RuntimeResult.Success(token)).isFailure
-                        ) {
-                            activeEngine.interrupt()
+                        if (token.isNotEmpty()) {
+                            val visible = thinkFilter.push(token)
+                            if (visible.isNotEmpty() &&
+                                trySend(RuntimeResult.Success(visible)).isFailure
+                            ) {
+                                activeEngine.interrupt()
+                            }
                         }
                     },
                 )
+                if (sampledTokens >= 0) {
+                    val finalVisible = thinkFilter.finish()
+                    if (finalVisible.isNotEmpty()) trySend(RuntimeResult.Success(finalVisible))
+                }
                 when {
                     sampledTokens < 0 -> {
                         unloadLocked()
@@ -168,13 +175,88 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         }
     }
 
+    /** Qwen3 accepts /no_think on the current user turn to skip long reasoning traces. */
+    private fun formatChatPrompt(activeEngine: LlamaEngine, messages: List<ChatMessage>): String {
+        val lastUserIndex = messages.indexOfLast { it.role.equals("user", ignoreCase = true) }
+        val nativeMessages = messages.mapIndexed { index, message ->
+            val content = if (index == lastUserIndex) {
+                message.content.trimEnd() + "\n/no_think"
+            } else {
+                message.content
+            }
+            NativeChatMessage(role = message.role, content = content)
+        }
+        return activeEngine.formatChat(nativeMessages)
+    }
+
     private fun samplingParams(settings: GenerationSettings) = SamplingParams(
-        nPredict = settings.maxTokens.coerceIn(1, 1024),
+        nPredict = settings.maxTokens.coerceIn(1, 256),
         temperature = settings.temperature.coerceIn(0.1f, 1.5f),
         topK = settings.topK.coerceIn(1, 100),
         topP = settings.topP.coerceIn(0.1f, 1.0f),
         minP = 0.05f,
     )
+
+    /** Removes Qwen3 reasoning blocks incrementally, including tags split across tokens. */
+    private class ThinkBlockFilter {
+        private var pending = ""
+        private var insideThink = false
+
+        fun push(chunk: String): String {
+            pending += chunk
+            val visible = StringBuilder()
+            while (pending.isNotEmpty()) {
+                if (insideThink) {
+                    val closeAt = pending.indexOf(END_THINK, ignoreCase = true)
+                    if (closeAt >= 0) {
+                        pending = pending.substring(closeAt + END_THINK.length)
+                        insideThink = false
+                        continue
+                    }
+                    val keep = longestSuffixThatCouldStart(pending, END_THINK)
+                    pending = if (keep == 0) "" else pending.takeLast(keep)
+                    break
+                }
+
+                val openAt = pending.indexOf(START_THINK, ignoreCase = true)
+                if (openAt >= 0) {
+                    visible.append(pending.substring(0, openAt))
+                    pending = pending.substring(openAt + START_THINK.length)
+                    insideThink = true
+                    continue
+                }
+
+                val keep = longestSuffixThatCouldStart(pending, START_THINK)
+                val safeLength = pending.length - keep
+                if (safeLength > 0) visible.append(pending.substring(0, safeLength))
+                pending = if (keep == 0) "" else pending.takeLast(keep)
+                break
+            }
+            return visible.toString()
+        }
+
+        fun finish(): String {
+            val remaining = if (insideThink) "" else pending
+            pending = ""
+            insideThink = false
+            return remaining
+        }
+
+        private fun longestSuffixThatCouldStart(value: String, tag: String): Int {
+            val limit = minOf(value.length, tag.length - 1)
+            for (length in limit downTo 1) {
+                if (value.regionMatches(value.length - length, tag, 0, length, ignoreCase = true)) {
+                    return length
+                }
+            }
+            return 0
+        }
+
+        private companion object {
+            const val START_THINK = "<think>"
+            const val END_THINK = "</think>"
+        }
+    }
 
     /** Reinitializing the native context before each request avoids reusing KV state. */
     private fun reloadNativeModelLocked(): Boolean {
