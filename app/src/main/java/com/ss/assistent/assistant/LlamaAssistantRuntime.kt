@@ -6,28 +6,33 @@ import com.ss.assistent.settings.GenerationSettings
 import com.tensai.llamakt.ChatMessage as NativeChatMessage
 import com.tensai.llamakt.LlamaEngine
 import com.tensai.llamakt.SamplingParams
+import com.tensai.llamakt.TokenCallback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /** Real on-device GGUF runtime backed by llama.cpp through llama.kt. */
 class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     private val nativeLock = ReentrantLock()
-
     private var engine: LlamaEngine? = null
     private var loadedModelPath: String? = null
     private var contextTokens: Int = ModelDiagnostics.DEFAULT_CONTEXT_TOKENS
 
     override suspend fun load(model: ModelInfo): RuntimeResult = withContext(Dispatchers.IO) {
         nativeLock.withLock {
-            if (!File(model.path).exists()) {
+            if (!File(model.path).isFile || !File(model.path).canRead()) {
                 unloadLocked()
-                return@withLock RuntimeResult.Error("The selected model file no longer exists on the device.")
+                return@withLock RuntimeResult.Error("The selected model file cannot be read on this device.")
             }
             if (engine != null && loadedModelPath == model.path) {
                 return@withLock RuntimeResult.Success("Model already loaded.")
@@ -40,6 +45,8 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
                 unloadLocked()
                 loadNativeModelLocked(model.path)
                 RuntimeResult.Success("Model loaded.")
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
                 unloadLocked()
                 RuntimeResult.Error(error.message ?: "The native GGUF runtime could not load this model.")
@@ -47,85 +54,133 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
         }
     }
 
-    override suspend fun generate(messages: List<ChatMessage>, settings: GenerationSettings): RuntimeResult =
-        withContext(Dispatchers.IO) {
-            nativeLock.withLock {
-                if (messages.isEmpty()) return@withLock RuntimeResult.Error("There is no message to generate a response to.")
-                try {
-                    if (!reloadNativeModelLocked()) {
-                        return@withLock RuntimeResult.Error("The local model could not be reloaded safely for inference.")
-                    }
-                    val activeEngine = engine ?: return@withLock RuntimeResult.Error("No local model is loaded.")
-                    // Native diagnostic: stop before completion/decode. Tokenization still
-                    // crosses the JNI/native boundary, so this distinguishes a basic native
-                    // context/tokenizer failure from a crash specifically inside generation.
-                    val tokenCount = activeEngine.tokenize(RAW_SMOKE_PROMPT).size
-                    RuntimeResult.Success("Native tokenize test passed: $tokenCount tokens.")
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    unloadLocked()
-                    RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried.")
-                }
+    override suspend fun generate(
+        messages: List<ChatMessage>,
+        settings: GenerationSettings
+    ): RuntimeResult = withContext(Dispatchers.IO) {
+        nativeLock.withLock {
+            if (messages.isEmpty()) {
+                return@withLock RuntimeResult.Error("There is no message to generate a response to.")
             }
-        }
-
-    override fun generateStream(messages: List<ChatMessage>, settings: GenerationSettings): Flow<RuntimeResult> = flow {
-        val result = withContext(Dispatchers.IO) {
-            nativeLock.lock()
             try {
-                if (messages.isEmpty()) {
-                    return@withContext RuntimeResult.Error("There is no message to generate a response to.")
+                if (!reloadNativeModelLocked()) {
+                    return@withLock RuntimeResult.Error("The local model could not be reloaded safely for inference.")
                 }
-                try {
-                    /*
-                     * llama.cpp keeps prompt/KV state inside the native engine.
-                     * Rebuild the engine before every request, following the
-                     * reset strategy that stabilized repeated generations in
-                     * SS-Story-AI. SS-Story-AI itself is not modified.
-                     */
-                    if (!reloadNativeModelLocked()) {
-                        return@withContext RuntimeResult.Error("The local model could not be reloaded safely for inference.")
+                val activeEngine = engine
+                    ?: return@withLock RuntimeResult.Error("No local model is loaded.")
+                val prompt = activeEngine.formatChat(
+                    messages.map { NativeChatMessage(role = it.role, content = it.content) }
+                )
+                val output = StringBuilder()
+                val sampledTokens = activeEngine.completion(
+                    prompt = prompt,
+                    params = samplingParams(settings),
+                    callback = TokenCallback { token -> output.append(token) },
+                )
+                when {
+                    sampledTokens < 0 -> {
+                        unloadLocked()
+                        RuntimeResult.Error("Native text generation failed. The model was unloaded for safety.")
                     }
-                    val activeEngine = engine ?: return@withContext RuntimeResult.Error("No local model is loaded.")
-                    // Same native diagnostic as generate(): do not enter completion/decode yet.
-                    val tokenCount = activeEngine.tokenize(RAW_SMOKE_PROMPT).size
-                    RuntimeResult.Success("Native tokenize test passed: $tokenCount tokens.")
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    unloadLocked()
-                    RuntimeResult.Error(error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried.")
+                    sampledTokens == 0 -> RuntimeResult.Error("The native model could not start text generation.")
+                    output.isBlank() -> RuntimeResult.Error("The model finished without producing a text response.")
+                    else -> RuntimeResult.Success(output.toString())
                 }
-            } finally {
-                nativeLock.unlock()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                unloadLocked()
+                RuntimeResult.Error(
+                    error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."
+                )
             }
         }
-        emit(result)
     }
 
-    /*
-     * Absolute-minimum native diagnostic: bypass chat templates and the
-     * conversation entirely. If this still crashes, the failure is below
-     * the app's chat/prompt logic.
-     */
-    private fun smokeTestParams(): SamplingParams = SamplingParams(
-        nPredict = 8,
-        temperature = 0.7f,
-        topK = 40,
-        topP = 0.95f,
+    override fun generateStream(
+        messages: List<ChatMessage>,
+        settings: GenerationSettings
+    ): Flow<RuntimeResult> = callbackFlow {
+        val activeEngineRef = AtomicReference<LlamaEngine?>(null)
+        val worker = launch(Dispatchers.IO) {
+            var lockAcquired = false
+            try {
+                nativeLock.lock()
+                lockAcquired = true
+                currentCoroutineContext().ensureActive()
+
+                if (messages.isEmpty()) {
+                    trySend(RuntimeResult.Error("There is no message to generate a response to."))
+                    return@launch
+                }
+                if (!reloadNativeModelLocked()) {
+                    trySend(RuntimeResult.Error("The local model could not be reloaded safely for inference."))
+                    return@launch
+                }
+                val activeEngine = engine
+                    ?: run {
+                        trySend(RuntimeResult.Error("No local model is loaded."))
+                        return@launch
+                    }
+                activeEngineRef.set(activeEngine)
+
+                val prompt = activeEngine.formatChat(
+                    messages.map { NativeChatMessage(role = it.role, content = it.content) }
+                )
+                val sampledTokens = activeEngine.completion(
+                    prompt = prompt,
+                    params = samplingParams(settings),
+                    callback = TokenCallback { token ->
+                        if (token.isNotEmpty() &&
+                            trySend(RuntimeResult.Success(token)).isFailure
+                        ) {
+                            activeEngine.interrupt()
+                        }
+                    },
+                )
+                when {
+                    sampledTokens < 0 -> {
+                        unloadLocked()
+                        trySend(RuntimeResult.Error("Native text generation failed. The model was unloaded for safety."))
+                    }
+                    sampledTokens == 0 ->
+                        trySend(RuntimeResult.Error("The native model could not start text generation."))
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (lockAcquired) unloadLocked()
+                trySend(
+                    RuntimeResult.Error(
+                        error.message ?: "Local inference failed unexpectedly. The model was unloaded and can be retried."
+                    )
+                )
+            } finally {
+                activeEngineRef.set(null)
+                if (lockAcquired) nativeLock.unlock()
+                close()
+            }
+        }
+
+        awaitClose {
+            activeEngineRef.get()?.interrupt()
+            worker.cancel()
+        }
+    }
+
+    private fun samplingParams(settings: GenerationSettings) = SamplingParams(
+        nPredict = settings.maxTokens.coerceIn(1, 1024),
+        temperature = settings.temperature.coerceIn(0.1f, 1.5f),
+        topK = settings.topK.coerceIn(1, 100),
+        topP = settings.topP.coerceIn(0.1f, 1.0f),
         minP = 0.05f,
     )
 
-    private companion object {
-        const val RAW_SMOKE_PROMPT = "Hello."
-    }
-
+    /** Reinitializing the native context before each request avoids reusing KV state. */
     private fun reloadNativeModelLocked(): Boolean {
         val path = loadedModelPath ?: return false
         val file = File(path)
-        if (!file.exists() || !file.isFile || !file.canRead()) return false
-
+        if (!file.isFile || !file.canRead()) return false
         return try {
             engine?.free()
             engine = null
