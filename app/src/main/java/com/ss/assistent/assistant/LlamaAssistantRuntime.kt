@@ -37,12 +37,13 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
             if (engine != null && loadedModelPath == model.path) {
                 return@withLock RuntimeResult.Success("Model already loaded.")
             }
-            when (val diagnostic = ModelDiagnostics.inspect(context, model)) {
+            val diagnosedContextTokens = when (val diagnostic = ModelDiagnostics.inspect(context, model)) {
                 is DiagnosticResult.Error -> return@withLock RuntimeResult.Error(diagnostic.message)
-                is DiagnosticResult.Ready -> contextTokens = diagnostic.contextTokens
+                is DiagnosticResult.Ready -> diagnostic.contextTokens
             }
             try {
                 unloadLocked()
+                contextTokens = diagnosedContextTokens
                 loadNativeModelLocked(model.path)
                 RuntimeResult.Success("Model loaded.")
             } catch (error: CancellationException) {
@@ -169,7 +170,7 @@ class LlamaAssistantRuntime(private val context: Context) : AssistantRuntime {
     }
 
     private fun samplingParams(settings: GenerationSettings) = SamplingParams(
-        nPredict = settings.maxTokens.coerceIn(1, 1024),
+        nPredict = settings.maxTokens.coerceIn(1, 256),
         temperature = settings.temperature.coerceIn(0.1f, 1.5f),
         topK = settings.topK.coerceIn(1, 100),
         topP = settings.topP.coerceIn(0.1f, 1.0f),
