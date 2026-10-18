@@ -103,7 +103,7 @@ object OnlineAssistTools {
             "netflix.com", "fandom.com", "wattpad.com", "archiveofourown.org"
         )
         if (entertainmentDomains.any { host.contains(it) }) return true
-        return Regex("""(?i)\\b(roman|buchreihe|buch|rezension|film|serie|fantasy novel|romanautor|leseprobe)\\b""")
+        return Regex("""(?i)\b(roman|buchreihe|buch|rezension|film|serie|fantasy novel|romanautor|leseprobe)\b""")
             .containsMatchIn(title)
     }
 
