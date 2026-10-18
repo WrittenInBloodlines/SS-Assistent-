@@ -50,6 +50,7 @@ object OnlineAssistTools {
         val sources = mutableListOf<ResearchSource>()
         val evidence = StringBuilder()
         for (result in results) {
+            if (isLikelyEntertainmentSource(query, result.title, result.url)) continue
             val pageText = runCatching { fetchReadablePage(result.url) }.getOrDefault("")
             // Prefer the source's own readable text; a Google snippet is only fallback evidence.
             val usableText = pageText.takeIf { it.length >= 180 } ?: result.snippet
@@ -91,9 +92,29 @@ object OnlineAssistTools {
         return output
     }
 
+    private fun isLikelyEntertainmentSource(query: String, title: String, url: String): Boolean {
+        val asksWhetherVampiresAreReal =
+            Regex("""(?i)vampir|vampire""").containsMatchIn(query) &&
+                Regex("""(?i)echt|wirklich|exist|real""").containsMatchIn(query)
+        if (!asksWhetherVampiresAreReal) return false
+        val host = runCatching { URL(url).host.lowercase() }.getOrDefault("")
+        val entertainmentDomains = listOf(
+            "goodreads.com", "amazon.", "thalia.", "hugendubel.", "buchhandel.", "imdb.com",
+            "netflix.com", "fandom.com", "wattpad.com", "archiveofourown.org"
+        )
+        if (entertainmentDomains.any { host.contains(it) }) return true
+        return Regex("""(?i)\\b(roman|buchreihe|buch|rezension|film|serie|fantasy novel|romanautor|leseprobe)\\b""")
+            .containsMatchIn(title)
+    }
+
     private fun unwrapGoogleUrl(href: String): String? {
         val decoded = Html.fromHtml(href, Html.FROM_HTML_MODE_LEGACY).toString()
         val candidate = when {
+            decoded.startsWith("https://www.google.com/url?") || decoded.startsWith("https://google.com/url?") -> {
+                decoded.substringAfter('?', "").split('&')
+                    .firstOrNull { it.startsWith("q=") || it.startsWith("url=") }
+                    ?.substringAfter('=')?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull() }
+            }
             decoded.startsWith("/url?") -> {
                 val query = decoded.substringAfter('?', "")
                 query.split('&').firstOrNull { it.startsWith("q=") || it.startsWith("url=") }
