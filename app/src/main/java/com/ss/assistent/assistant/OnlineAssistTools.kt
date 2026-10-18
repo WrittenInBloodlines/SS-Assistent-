@@ -25,10 +25,10 @@ data class ResearchResult(
  */
 object OnlineAssistTools {
     private val factualQuestionWords = Regex(
-        """(?i)\\b(was|wer|wie|wo|wann|warum|wieso|weshalb|welche?r?s?|sind|ist|gibt es|hat|haben|kann|können|does|do|is|are|what|who|when|where|why|how|can)\\b"""
+        """(?i)\b(was|wer|wie|wo|wann|warum|wieso|weshalb|welche?r?s?|sind|ist|gibt es|hat|haben|kann|können|does|do|is|are|what|who|when|where|why|how|can)\b"""
     )
     private val nonResearchIntent = Regex(
-        """(?i)\\b(schreib|schreibe|schreibt|geschichte|story|roman|gedicht|reim|rollenspiel|roleplay|stell dir vor|erfinde|fantas|write|create a story|fiction)\\b"""
+        """(?i)\b(schreib|schreibe|schreibt|geschichte|story|roman|gedicht|reim|rollenspiel|roleplay|stell dir vor|erfinde|fantas|write|create a story|fiction)\b"""
     )
 
     fun shouldResearch(query: String): Boolean {
@@ -57,9 +57,9 @@ object OnlineAssistTools {
             val source = result.copy(snippet = usableText.take(650).trim())
             sources += source
             if (evidence.length < 10000) {
-                evidence.append("SOURCE TITLE: ").append(source.title).append("\\n")
-                    .append("SOURCE URL: ").append(source.url).append("\\n")
-                    .append("SOURCE TEXT (extracted from the page): ").append(usableText.take(2200)).append("\\n\\n")
+                evidence.append("SOURCE TITLE: ").append(source.title).append("\n")
+                    .append("SOURCE URL: ").append(source.url).append("\n")
+                    .append("SOURCE TEXT (extracted from the page): ").append(usableText.take(2200)).append("\n\n")
             }
             if (sources.size >= 5 || evidence.length >= 10000) break
         }
@@ -71,7 +71,7 @@ object OnlineAssistTools {
     private fun parseGoogleResults(html: String): List<GoogleResult> {
         val output = mutableListOf<GoogleResult>()
         // Google commonly renders a result title as an h3 inside its result link.
-        val resultPattern = Regex("""(?is)<a\\b[^>]*href=["']([^"'#]+)["'][^>]*>\\s*(?:<div[^>]*>\\s*)?<h3[^>]*>(.*?)</h3>.*?</a>""")
+        val resultPattern = Regex("""(?is)<a\b[^>]*href=["']([^"'#]+)["'][^>]*>\s*(?:<div[^>]*>\s*)?<h3[^>]*>(.*?)</h3>.*?</a>""")
         for (match in resultPattern.findAll(html)) {
             val rawHref = match.groupValues[1]
             val url = unwrapGoogleUrl(rawHref) ?: continue
@@ -108,10 +108,10 @@ object OnlineAssistTools {
     private fun fetchReadablePage(pageUrl: String): String {
         val html = URL(pageUrl).openText(4500, 5000)
         val withoutScripts = html
-            .replace(Regex("""(?is)<script\\b.*?</script>"""), " ")
-            .replace(Regex("""(?is)<style\\b.*?</style>"""), " ")
-            .replace(Regex("""(?is)<noscript\\b.*?</noscript>"""), " ")
-            .replace(Regex("""(?is)<svg\\b.*?</svg>"""), " ")
+            .replace(Regex("""(?is)<script\b.*?</script>"""), " ")
+            .replace(Regex("""(?is)<style\b.*?</style>"""), " ")
+            .replace(Regex("""(?is)<noscript\b.*?</noscript>"""), " ")
+            .replace(Regex("""(?is)<svg\b.*?</svg>"""), " ")
             .replace(Regex("""(?is)<[^>]+>"""), " ")
         return plainText(withoutScripts).replace(Regex("\\s+"), " ").trim()
     }
