@@ -43,6 +43,7 @@ import com.ss.assistent.ui.screens.ConversationToolsScreen
 import com.ss.assistent.ui.screens.MemoryScreen
 import com.ss.assistent.ui.screens.ModelsScreen
 import com.ss.assistent.ui.screens.SettingsScreen
+import com.ss.assistent.ui.screens.WebToolsScreen
 import com.ss.assistent.ui.theme.SSAssistentTheme
 
 class MainActivity : ComponentActivity() {
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Settings }
+private enum class AppScreen { Home, Models, Assistant, Conversation, Memory, Continuity, Settings, WebTools }
 
 @Composable
 private fun SSAssistentApp() {
@@ -65,7 +66,8 @@ private fun SSAssistentApp() {
             onConversation = { screen = AppScreen.Conversation },
             onMemory = { screen = AppScreen.Memory },
             onContinuity = { screen = AppScreen.Continuity },
-            onSettings = { screen = AppScreen.Settings }
+            onSettings = { screen = AppScreen.Settings },
+            onWebTools = { screen = AppScreen.WebTools }
         )
         AppScreen.Models -> ModelsScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Assistant -> AssistantScreen(onBack = { screen = AppScreen.Home })
@@ -73,6 +75,7 @@ private fun SSAssistentApp() {
         AppScreen.Memory -> MemoryScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Continuity -> ContinuityScreen(onBack = { screen = AppScreen.Home })
         AppScreen.Settings -> SettingsScreen(onBack = { screen = AppScreen.Home })
+        AppScreen.WebTools -> WebToolsScreen(onBack = { screen = AppScreen.Home })
     }
 }
 
@@ -83,7 +86,8 @@ private fun HomeScreen(
     onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onWebTools: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val models = remember { ModelRepository(context).getModels() }
@@ -97,7 +101,7 @@ private fun HomeScreen(
         ) {
             item { Header() }
             item { ModelCard(activeModel?.name, modelCount, onModels) }
-            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onSettings) }
+            item { QuickActions(onModels, onAssistant, onConversation, onMemory, onContinuity, onSettings, onWebTools) }
             item { ActivityCard() }
         }
     }
@@ -140,7 +144,8 @@ private fun QuickActions(
     onConversation: () -> Unit,
     onMemory: () -> Unit,
     onContinuity: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onWebTools: () -> Unit
 ) {
     Column {
         SectionTitle("Quick access")
@@ -162,7 +167,7 @@ private fun QuickActions(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionCard("⚙", "Settings", Modifier.weight(1f), onSettings)
-            Spacer(Modifier.weight(1f))
+            ActionCard("⌕", "Web & spelling", Modifier.weight(1f), onWebTools)
         }
     }
 }
