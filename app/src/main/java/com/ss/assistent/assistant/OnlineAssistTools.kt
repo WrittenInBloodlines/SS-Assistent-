@@ -55,7 +55,11 @@ object OnlineAssistTools {
             // Prefer the source's own readable text; a Google snippet is only fallback evidence.
             val usableText = pageText.takeIf { it.length >= 180 } ?: result.snippet
             if (usableText.isBlank()) continue
-            val source = result.copy(snippet = usableText.take(650).trim())
+            val source = ResearchSource(
+                title = result.title,
+                snippet = usableText.take(650).trim(),
+                url = result.url
+            )
             sources.add(source)
             if (evidence.length < 10000) {
                 evidence.append("SOURCE TITLE: ").append(source.title).append("\n")
