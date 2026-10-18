@@ -56,7 +56,7 @@ object OnlineAssistTools {
             val usableText = pageText.takeIf { it.length >= 180 } ?: result.snippet
             if (usableText.isBlank()) continue
             val source = result.copy(snippet = usableText.take(650).trim())
-            sources += source
+            sources.add(source)
             if (evidence.length < 10000) {
                 evidence.append("SOURCE TITLE: ").append(source.title).append("\n")
                     .append("SOURCE URL: ").append(source.url).append("\n")
