@@ -572,18 +572,18 @@ fun AssistantScreen(onBack: () -> Unit) {
                                     is RuntimeResult.Success -> {
                                         var evidenceInstruction = ""
                                         if (OnlineAssistTools.shouldResearch(text)) {
-                                            status = "Searching sources…"
+                                            status = "Searching Google for the exact question…"
                                             try {
                                                 val research = withContext(Dispatchers.IO) { OnlineAssistTools.research(text) }
                                                 researchSources = research.sources
                                                 evidenceInstruction = if (research.evidenceText.isNotBlank()) {
-                                                    "\\n\\nONLINE SOURCE MATERIAL (retrieved for this question):\\n${research.evidenceText}\\nUse these passages as evidence, answer the user directly, distinguish evidence from uncertainty, and do not invent facts or claim sources support something they do not. Cite relevant source titles in the answer."
+                                                    "\n\nGOOGLE SEARCH RESULTS AND SOURCE TEXT FOR THE EXACT USER QUESTION:\n${research.evidenceText}\nBefore answering, compare the source texts, prefer reliable factual/educational/scientific sources over entertainment or book pages, and base factual claims on what the sources actually say. If sources disagree, explain that briefly. Correct any initial assumption that the sources contradict. Answer in clear, correct German, directly and concisely. Never invent evidence, source content, or certainty. Cite relevant source titles and do not claim a source proves more than it does."
                                                 } else {
-                                                    "\\n\\nNo usable online sources were found. Be honest that this question could not be verified online; do not pretend to have checked sources."
+                                                    "\n\nNo usable Google results or source text could be read. Be transparent that online verification failed or found no readable sources; do not pretend the answer was verified."
                                                 }
                                                 status = if (researchSources.isEmpty()) "No sources found • answering locally" else "Found ${researchSources.size} sources • generating answer"
                                             } catch (_: Exception) {
-                                                evidenceInstruction = "\\n\\nOnline source search failed. Answer from local knowledge only and clearly say the online check did not work; do not claim that sources were checked."
+                                                evidenceInstruction = "\n\nGoogle search failed. Answer from local knowledge only, clearly say the online check did not work, and do not claim that sources were checked."
                                                 status = "Source search failed • answering locally"
                                             }
                                         } else {
